@@ -20,7 +20,7 @@
 #include <linux/slab.h>
 #include "../ion_priv.h"
 
-static int num_heaps;
+static struct ion_device *idev;
 static struct ion_heap **heaps;
 
 static long rockchip_custom_ioctl (struct ion_client *client, unsigned int cmd,
@@ -28,23 +28,30 @@ static long rockchip_custom_ioctl (struct ion_client *client, unsigned int cmd,
 {
 	return 0;
 }
+
+struct ion_client *rockchip_ion_client_create(const char *name)
+{
+	return ion_client_create(idev, name);
+}
+EXPORT_SYMBOL(rockchip_ion_client_create);
+
 static int rockchip_ion_probe(struct platform_device *pdev)
 {
-    struct ion_device *idev;
 	struct ion_platform_data *pdata = pdev->dev.platform_data;
 	int err;
 	int i;
 
-	num_heaps = pdata->nr;
-	heaps = kzalloc(sizeof(struct ion_heap *) * pdata->nr, GFP_KERNEL);
+	heaps = kzalloc(sizeof(struct ion_heap *) * pdata->nr,
+		GFP_KERNEL);
 
 	idev = ion_device_create(rockchip_custom_ioctl);
 	if (IS_ERR_OR_NULL(idev)) {
 		kfree(heaps);
 		return PTR_ERR(idev);
 	}
+
 	/* create the heaps as specified in the board file */
-	for (i = 0; i < num_heaps; i++) {
+	for (i = 0; i < pdata->nr; i++) {
 		struct ion_platform_heap *heap_data = &pdata->heaps[i];
 
 		heaps[i] = ion_heap_create(heap_data);
@@ -55,10 +62,11 @@ static int rockchip_ion_probe(struct platform_device *pdev)
 		ion_device_add_heap(idev, heaps[i]);
 	}
 	platform_set_drvdata(pdev, idev);
-        pr_info("Rockchip ion module(version: %s) is successfully loaded\n", ION_VERSION);
+
+	pr_info("Rockchip ion module(version: %s) is successfully loaded\n", ION_VERSION);
 	return 0;
 err:
-	for (i = 0; i < num_heaps; i++) {
+	for (i = 0; i < pdata->nr; i++) {
 		if (heaps[i])
 			ion_heap_destroy(heaps[i]);
 	}
@@ -69,10 +77,11 @@ err:
 static int rockchip_ion_remove(struct platform_device *pdev)
 {
 	struct ion_device *idev = platform_get_drvdata(pdev);
+	struct ion_platform_data *pdata = pdev->dev.platform_data;
 	int i;
 
 	ion_device_destroy(idev);
-	for (i = 0; i < num_heaps; i++)
+	for (i = 0; i < pdata->nr; i++)
 		ion_heap_destroy(heaps[i]);
 	kfree(heaps);
 	return 0;
@@ -81,7 +90,9 @@ static int rockchip_ion_remove(struct platform_device *pdev)
 static struct platform_driver ion_driver = {
 	.probe = rockchip_ion_probe,
 	.remove = rockchip_ion_remove,
-	.driver = { .name = "ion-rockchip" }
+	.driver = {
+		.name = "ion-rockchip",
+	},
 };
 
 static int __init ion_init(void)
@@ -96,4 +107,3 @@ static void __exit ion_exit(void)
 
 module_init(ion_init);
 module_exit(ion_exit);
-
