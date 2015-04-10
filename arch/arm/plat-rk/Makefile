@@ -19,3 +19,4 @@ obj-$(CONFIG_DVFS) += dvfs.o
 obj-y += pwm.o
 obj-$(CONFIG_RK_TIMER) += rk_timer.o
 obj-$(CONFIG_BOARD_ID) += bid/
+obj-$(CONFIG_BLOCK_RKNAND) += rknandbase.o

@@ -232,4 +232,17 @@ config TRACK_LOCALHOST
 
 config ANDROID_KITKAT
     bool "Enable for Android 4.4 KitKat"
+
+
+config BLOCK_RKNAND
+	tristate "RK NAND Device Support"
+	default n
+	help
+	  RK NAND Device Support.
+ 
+config BLOCK_RKNAND_M
+	tristate "RK NAND Device Support M"
+	default n
+	help
+	  RK NAND Device Support.
 endif
