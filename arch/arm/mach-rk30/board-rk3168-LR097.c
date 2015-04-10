@@ -928,7 +928,7 @@ static struct ion_platform_data rk30_ion_pdata = {
 	.heaps = {
 		{
 			.type = ION_HEAP_TYPE_CARVEOUT,
-			.id = ION_HEAP_TYPE_CARVEOUT,
+			.id = ION_NOR_HEAP_ID,
 			.name = "norheap",
 //			.size = ION_RESERVE_SIZE,
 		}
