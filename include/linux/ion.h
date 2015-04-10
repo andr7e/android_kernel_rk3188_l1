@@ -17,9 +17,11 @@
 #ifndef _LINUX_ION_H
 #define _LINUX_ION_H
 
+#include <linux/ioctl.h>
 #include <linux/types.h>
 
-struct ion_handle;
+typedef int ion_user_handle_t;
+
 /**
  * enum ion_heap_types - list of all possible types of heaps
  * @ION_HEAP_TYPE_SYSTEM:	 memory allocated via vmalloc
@@ -60,6 +62,7 @@ enum ion_heap_type {
 					   caches must be managed manually */
 
 #ifdef __KERNEL__
+struct ion_handle;
 struct ion_device;
 struct ion_heap;
 struct ion_mapper;
@@ -238,6 +241,11 @@ int ion_share_dma_buf_fd(struct ion_client *client, struct ion_handle *handle);
  * another exporter is passed in this function will return ERR_PTR(-EINVAL)
  */
 struct ion_handle *ion_import_dma_buf(struct ion_client *client, int fd);
+
+struct ion_handle *ion_handle_get_by_id(struct ion_client *client,
+					int id);
+
+int ion_handle_put(struct ion_handle *handle);
 
 #endif /* __KERNEL__ */
 

@@ -35,6 +35,7 @@
 #include <linux/uaccess.h>
 #include <linux/debugfs.h>
 #include <linux/dma-buf.h>
+#include <linux/idr.h>
 
 #include "ion_priv.h"
 
@@ -57,6 +58,8 @@ struct ion_device {
 			      unsigned long arg);
 	struct rb_root clients;
 	struct dentry *debug_root;
+	struct dentry *heaps_debug_root;
+	struct dentry *clients_debug_root;
 };
 
 /**
@@ -64,8 +67,11 @@ struct ion_device {
  * @node:		node in the tree of all clients
  * @dev:		backpointer to ion device
  * @handles:		an rb tree of all the handles in this client
+ * @idr:		an idr space for allocating handle ids
  * @lock:		lock protecting the tree of handles
  * @name:		used for debugging
+ * @display_name:	used for debugging (unique version of @name)
+ * @display_serial:	used for debugging (to make display_name unique)
  * @task:		used for debugging
  *
  * A client represents a list of buffers this client may access.
@@ -76,8 +82,11 @@ struct ion_client {
 	struct rb_node node;
 	struct ion_device *dev;
 	struct rb_root handles;
+	struct idr idr;
 	struct mutex lock;
 	const char *name;
+	char *display_name;
+	int display_serial;
 	struct task_struct *task;
 	pid_t pid;
 	struct dentry *debug_root;
@@ -90,7 +99,7 @@ struct ion_client {
  * @buffer:		pointer to the buffer
  * @node:		node in the client's handle rbtree
  * @kmap_cnt:		count of times this client has mapped to kernel
- * @dmap_cnt:		count of times this client has mapped for dma
+ * @id:			client-unique id allocated by client->idr
  *
  * Modifications to node, map_cnt or mapping should be protected by the
  * lock in the client.  Other fields are never changed after initialization.
@@ -101,6 +110,7 @@ struct ion_handle {
 	struct ion_buffer *buffer;
 	struct rb_node node;
 	unsigned int kmap_cnt;
+	int id;
 };
 
 bool ion_buffer_fault_user_mappings(struct ion_buffer *buffer)
@@ -332,6 +342,7 @@ static void ion_handle_destroy(struct kref *kref)
 		ion_handle_kmap_put(handle);
 	mutex_unlock(&buffer->lock);
 
+	idr_remove(&client->idr, handle->id);
 	if (!RB_EMPTY_NODE(&handle->node))
 		rb_erase(&handle->node, &client->handles);
 
@@ -351,7 +362,7 @@ static void ion_handle_get(struct ion_handle *handle)
 	kref_get(&handle->ref);
 }
 
-static int ion_handle_put(struct ion_handle *handle)
+int ion_handle_put(struct ion_handle *handle)
 {
 	return kref_put(&handle->ref, ion_handle_destroy);
 }
@@ -370,21 +381,25 @@ static struct ion_handle *ion_handle_lookup(struct ion_client *client,
 	return NULL;
 }
 
-static bool ion_handle_validate(struct ion_client *client, struct ion_handle *handle)
+struct ion_handle *ion_handle_get_by_id(struct ion_client *client,
+						int id)
 {
-	struct rb_node *n = client->handles.rb_node;
+	struct ion_handle *handle;
 
-	while (n) {
-		struct ion_handle *handle_node = rb_entry(n, struct ion_handle,
-							  node);
-		if (handle < handle_node)
-			n = n->rb_left;
-		else if (handle > handle_node)
-			n = n->rb_right;
-		else
-			return true;
-	}
-	return false;
+	mutex_lock(&client->lock);
+	handle = idr_find(&client->idr, id);
+	if (handle)
+		ion_handle_get(handle);
+	mutex_unlock(&client->lock);
+
+	return handle ? handle : ERR_PTR(-EINVAL);
+}
+
+static bool ion_handle_validate(struct ion_client *client,
+				struct ion_handle *handle)
+{
+	WARN_ON(!mutex_is_locked(&client->lock));
+	return (idr_find(&client->idr, handle->id) == handle);
 }
 
 static void ion_handle_add(struct ion_client *client, struct ion_handle *handle)
@@ -646,6 +661,20 @@ static const struct file_operations debug_client_fops = {
 	.release = single_release,
 };
 
+static int ion_get_client_serial(const struct rb_root *root,
+					const unsigned char *name)
+{
+	int serial = -1;
+	struct rb_node *node;
+	for (node = rb_first(root); node; node = rb_next(node)) {
+		struct ion_client *client = rb_entry(node, struct ion_client,
+						node);
+		if (strcmp(client->name, name))
+			continue;
+		serial = max(serial, client->display_serial);
+	}
+	return serial + 1;
+}
 struct ion_client *ion_client_create(struct ion_device *dev,
 				     const char *name)
 {
@@ -654,9 +683,12 @@ struct ion_client *ion_client_create(struct ion_device *dev,
 	struct rb_node **p;
 	struct rb_node *parent = NULL;
 	struct ion_client *entry;
-	char debug_name[64];
 	pid_t pid;
 
+	if (!name) {
+		pr_err("%s: Name cannot be null\n", __func__);
+		return ERR_PTR(-EINVAL);
+	}
 	get_task_struct(current->group_leader);
 	task_lock(current->group_leader);
 	pid = task_pid_nr(current->group_leader);
@@ -671,20 +703,27 @@ struct ion_client *ion_client_create(struct ion_device *dev,
 	task_unlock(current->group_leader);
 
 	client = kzalloc(sizeof(struct ion_client), GFP_KERNEL);
-	if (!client) {
-		if (task)
-			put_task_struct(current->group_leader);
-		return ERR_PTR(-ENOMEM);
-	}
+	if (!client)
+		goto err_put_task_struct;
 
 	client->dev = dev;
 	client->handles = RB_ROOT;
+	idr_init(&client->idr);
 	mutex_init(&client->lock);
-	client->name = name;
 	client->task = task;
 	client->pid = pid;
+	client->name = kstrdup(name, GFP_KERNEL);
+	if (!client->name)
+		goto err_free_client;
 
 	down_write(&dev->lock);
+	client->display_serial = ion_get_client_serial(&dev->clients, name);
+	client->display_name = kasprintf(
+		GFP_KERNEL, "%s-%d", name, client->display_serial);
+	if (!client->display_name) {
+		up_write(&dev->lock);
+		goto err_free_client_name;
+	}
 	p = &dev->clients.rb_node;
 	while (*p) {
 		parent = *p;
@@ -698,13 +737,27 @@ struct ion_client *ion_client_create(struct ion_device *dev,
 	rb_link_node(&client->node, parent, p);
 	rb_insert_color(&client->node, &dev->clients);
 
-	snprintf(debug_name, 64, "%u", client->pid);
-	client->debug_root = debugfs_create_file(debug_name, 0664,
-						 dev->debug_root, client,
-						 &debug_client_fops);
+	client->debug_root = debugfs_create_file(client->display_name, 0664,
+						dev->clients_debug_root,
+						client, &debug_client_fops);
+	if (!client->debug_root) {
+		char buf[256], *path;
+		path = dentry_path(dev->clients_debug_root, buf, 256);
+		pr_err("Failed to create client debugfs at %s/%s\n",
+			path, client->display_name);
+	}
+
 	up_write(&dev->lock);
 
 	return client;
+err_free_client_name:
+	kfree(client->name);
+err_free_client:
+	kfree(client);
+err_put_task_struct:
+	if (task)
+		put_task_struct(current->group_leader);
+	return ERR_PTR(-ENOMEM);
 }
 EXPORT_SYMBOL(ion_client_create);
 
@@ -719,6 +772,7 @@ void ion_client_destroy(struct ion_client *client)
 						     node);
 		ion_handle_destroy(&handle->ref);
 	}
+	idr_destroy(&client->idr);
 	down_write(&dev->lock);
 	if (client->task)
 		put_task_struct(client->task);
@@ -726,6 +780,8 @@ void ion_client_destroy(struct ion_client *client)
 	debugfs_remove_recursive(client->debug_root);
 	up_write(&dev->lock);
 
+	kfree(client->display_name);
+	kfree(client->name);
 	kfree(client);
 }
 EXPORT_SYMBOL(ion_client_destroy);

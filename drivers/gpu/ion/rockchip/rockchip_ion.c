@@ -16,8 +16,10 @@
 
 #include <linux/err.h>
 #include <linux/ion.h>
+#include <linux/uaccess.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
+#include <linux/rockchip_ion.h>
 #include "../ion_priv.h"
 
 static struct ion_device *idev;
@@ -26,6 +28,36 @@ static struct ion_heap **heaps;
 static long rockchip_custom_ioctl (struct ion_client *client, unsigned int cmd,
 			      unsigned long arg)
 {
+	pr_debug("[%s %d] cmd=%X\n", __func__, __LINE__, cmd);
+
+	switch (cmd) {
+	case ION_IOC_GET_PHYS:
+	{
+		struct ion_phys_data data;
+		struct ion_handle *handle;
+		int ret;
+		
+		if (copy_from_user(&data, (void __user *)arg,
+					sizeof(struct ion_phys_data)))
+			return -EFAULT;
+
+		handle = ion_handle_get_by_id(client, data.handle);
+		if (IS_ERR(handle))
+			return PTR_ERR(handle);
+
+		ret = ion_phys(client, handle, &data.phys, (size_t *)&data.size);
+		pr_debug("ret=%d, phys=0x%lX\n", ret, data.phys);
+		ion_handle_put(handle);
+		if(ret < 0)
+			return ret;
+		if (copy_to_user((void __user *)arg, &data, sizeof(struct ion_phys_data)))
+			return -EFAULT;
+		break;
+	}
+	default:
+		return -ENOTTY;
+	}
+
 	return 0;
 }
 
@@ -63,7 +95,7 @@ static int rockchip_ion_probe(struct platform_device *pdev)
 	}
 	platform_set_drvdata(pdev, idev);
 
-	pr_info("Rockchip ion module(version: %s) is successfully loaded\n", ION_VERSION);
+	pr_info("Rockchip ion module is successfully loaded\n");
 	return 0;
 err:
 	for (i = 0; i < pdata->nr; i++) {
@@ -92,6 +124,7 @@ static struct platform_driver ion_driver = {
 	.remove = rockchip_ion_remove,
 	.driver = {
 		.name = "ion-rockchip",
+		.owner	= THIS_MODULE,
 	},
 };
 
