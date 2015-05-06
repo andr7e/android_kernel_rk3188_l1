@@ -168,7 +168,7 @@ EXPORT_SYMBOL(rknand_dma_unmap_single);
 
 int rknand_flash_cs_init(int id)
 {
-    return 0;
+	return 0;
 }
 EXPORT_SYMBOL(rknand_flash_cs_init);
 
@@ -202,58 +202,60 @@ EXPORT_SYMBOL(rknand_nandc_irq_init);
 static int rknand_probe(struct platform_device *pdev)
 {
 	unsigned int id = 0;
-	int irq ;
-	struct resource		*mem;
-	void __iomem    *membase;
+	int irq;
+	struct resource	*mem;
+	void __iomem *membase;
 
-    if(gpNandInfo == NULL)
-    {
-        gpNandInfo = kzalloc(sizeof(struct rknand_info), GFP_KERNEL);
-        if (!gpNandInfo)
-            return -ENOMEM;
-        gpNandInfo->nand_suspend_state = 0;
-        gpNandInfo->nand_shutdown_state = 0;
+	if(gpNandInfo == NULL)
+	{
+		gpNandInfo = kzalloc(sizeof(struct rknand_info), GFP_KERNEL);
+		if (!gpNandInfo)
+			return -ENOMEM;
+		gpNandInfo->nand_suspend_state = 0;
+		gpNandInfo->nand_shutdown_state = 0;
 	}
+
 	membase = ioremap(RK30_NANDC_PHYS,RK30_NANDC_SIZE);
 	if (membase == 0) 
 	{
 		dev_err(&pdev->dev, "no reg resource?\n");
 		return -1;
 	}
-    memcpy(nand_idb_data,membase+0x1000,0x800);
-    irq = IRQ_NANDC;//platform_get_irq(pdev, 0);
-	//printk("nand irq: %d\n",irq);
-    g_nandc_info[id].id = id;
-    g_nandc_info[id].irq = irq;
-    g_nandc_info[id].reg_base = membase;
 
-    /*g_nandc_info[id].hclk = devm_clk_get(&pdev->dev, "hclk_nandc");
-    g_nandc_info[id].clk = devm_clk_get(&pdev->dev, "clk_nandc");
-    g_nandc_info[id].gclk = devm_clk_get(&pdev->dev, "g_clk_nandc");
+	memcpy(nand_idb_data,membase+0x1000,0x800);
+	irq = IRQ_NANDC;//platform_get_irq(pdev, 0);
+	printk("%s nand irq: %d\n", __func__, irq);
+	g_nandc_info[id].id = id;
+	g_nandc_info[id].irq = irq;
+	g_nandc_info[id].reg_base = membase;
 
-	if (unlikely(IS_ERR(g_nandc_info[id].clk)) || unlikely(IS_ERR(g_nandc_info[id].hclk))
-	|| unlikely(IS_ERR(g_nandc_info[id].gclk))) {
-        printk("rknand_probe get clk error\n");
-        return -1;
-	}
+	/*g_nandc_info[id].hclk = devm_clk_get(&pdev->dev, "hclk_nandc");
+	  g_nandc_info[id].clk = devm_clk_get(&pdev->dev, "clk_nandc");
+	  g_nandc_info[id].gclk = devm_clk_get(&pdev->dev, "g_clk_nandc");
 
-    clk_set_rate(g_nandc_info[id].clk,150*1000*1000);
-	g_nandc_info[id].clk_rate = clk_get_rate(g_nandc_info[id].clk );
-    printk("rknand_probe clk rate = %d\n",g_nandc_info[id].clk_rate);
-    gpNandInfo->clk_rate[id] = g_nandc_info[id].clk_rate;
-    
-	clk_prepare_enable( g_nandc_info[id].clk );
-	clk_prepare_enable( g_nandc_info[id].hclk);
-	clk_prepare_enable( g_nandc_info[id].gclk);*/
+	  if (unlikely(IS_ERR(g_nandc_info[id].clk)) || unlikely(IS_ERR(g_nandc_info[id].hclk))
+	  || unlikely(IS_ERR(g_nandc_info[id].gclk))) {
+	  printk("rknand_probe get clk error\n");
+	  return -1;
+	  }
+
+	  clk_set_rate(g_nandc_info[id].clk,150*1000*1000);
+	  g_nandc_info[id].clk_rate = clk_get_rate(g_nandc_info[id].clk );
+	  printk("rknand_probe clk rate = %d\n",g_nandc_info[id].clk_rate);
+	  gpNandInfo->clk_rate[id] = g_nandc_info[id].clk_rate;
+
+	  clk_prepare_enable( g_nandc_info[id].clk );
+	  clk_prepare_enable( g_nandc_info[id].hclk);
+	  clk_prepare_enable( g_nandc_info[id].gclk);*/
 	return 0;
 }
 
 static int rknand_suspend(struct platform_device *pdev, pm_message_t state)
 {
-    if(gpNandInfo->rknand_suspend  && gpNandInfo->nand_suspend_state == 0){
-       gpNandInfo->nand_suspend_state = 1;
-        gpNandInfo->rknand_suspend();
-        //TODO:nandc clk disable
+	if(gpNandInfo->rknand_suspend  && gpNandInfo->nand_suspend_state == 0){
+		gpNandInfo->nand_suspend_state = 1;
+		gpNandInfo->rknand_suspend();
+		//TODO:nandc clk disable
 	}
 	return 0;
 }
@@ -261,10 +263,10 @@ static int rknand_suspend(struct platform_device *pdev, pm_message_t state)
 
 static int rknand_resume(struct platform_device *pdev)
 {
-    if(gpNandInfo->rknand_resume && gpNandInfo->nand_suspend_state == 1){
-       gpNandInfo->nand_suspend_state = 0;
-       //TODO:nandc clk enable
-       gpNandInfo->rknand_resume();  
+	if(gpNandInfo->rknand_resume && gpNandInfo->nand_suspend_state == 1){
+		gpNandInfo->nand_suspend_state = 0;
+		//TODO:nandc clk enable
+		gpNandInfo->rknand_resume();
 	}
 	return 0;
 }
@@ -283,35 +285,25 @@ void rknand_dev_cache_flush(void)
         gpNandInfo->rknand_dev_cache_flush();
 }
 
-#ifdef CONFIG_OF
-static const struct of_device_id of_rk_nandc_match[] = {
-	{ .compatible = "rockchip,rk-nandc" },
-	{ /* Sentinel */ }
-};
-#endif
-
 static struct platform_driver rknand_driver = {
 	.probe		= rknand_probe,
 	.suspend	= rknand_suspend,
 	.resume		= rknand_resume,
 	.shutdown   = rknand_shutdown,
 	.driver		= {
-	    .name	= "rknand",
-#ifdef CONFIG_OF
-    	.of_match_table	= of_rk_nandc_match,
-#endif
+		.name	= "rk29xxnand",
 		.owner	= THIS_MODULE,
 	},
 };
 
 static void __exit rknand_part_exit(void)
 {
-	printk("rknand_part_exit: \n");
-    platform_driver_unregister(&rknand_driver);
-    if(gpNandInfo->rknand_exit)
-        gpNandInfo->rknand_exit();    
+	printk("%s\n", __func__);
+	platform_driver_unregister(&rknand_driver);
+	if(gpNandInfo->rknand_exit)
+		gpNandInfo->rknand_exit();
 	if (gpNandInfo)
-	    kfree(gpNandInfo);
+		kfree(gpNandInfo);
 }
 
 MODULE_ALIAS(DRIVER_NAME);
@@ -323,7 +315,7 @@ static int __init rknand_part_init(void)
 	cmdline = strstr(saved_command_line, "mtdparts=") + 9;
 
 	gpNandInfo = NULL;
-    memset(g_nandc_info,0,sizeof(g_nandc_info));
+	memset(g_nandc_info,0,sizeof(g_nandc_info));
 
 	ret = platform_driver_register(&rknand_driver);
 	printk("rknand_driver:ret = %x \n",ret);
