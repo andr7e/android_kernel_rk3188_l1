@@ -843,7 +843,6 @@ static void __init rk30_init_spim(void)
 #endif
 }
 
-#ifdef CONFIG_MTD_NAND_RK29XX
 static struct resource resources_nand[] = {
 	{
 		.start	= RK30_NANDC_PHYS,
@@ -858,7 +857,6 @@ static struct platform_device device_nand = {
 	.resource	= resources_nand,
 	.num_resources	= ARRAY_SIZE(resources_nand),
 };
-#endif
 
 #ifdef CONFIG_HDMI_RK30
 static struct resource resource_hdmi[] = {
@@ -1349,9 +1347,7 @@ static int __init rk30_init_devices(void)
 	platform_device_register(&device_wdt);
 #endif
 	platform_device_register(&device_arm_pmu);
-#ifdef CONFIG_MTD_NAND_RK29XX
 	platform_device_register(&device_nand);
-#endif
 #if defined(CONFIG_ARCH_RK319X) && defined(CONFIG_RK616_MIPI_DSI)
 	platform_device_register(&device_mipi_dsi);
 #endif		
