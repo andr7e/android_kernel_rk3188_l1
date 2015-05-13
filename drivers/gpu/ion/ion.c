@@ -402,11 +402,24 @@ static bool ion_handle_validate(struct ion_client *client,
 	return (idr_find(&client->idr, handle->id) == handle);
 }
 
-static void ion_handle_add(struct ion_client *client, struct ion_handle *handle)
+static int ion_handle_add(struct ion_client *client, struct ion_handle *handle)
 {
+	int rc;
 	struct rb_node **p = &client->handles.rb_node;
 	struct rb_node *parent = NULL;
 	struct ion_handle *entry;
+
+	do {
+		int id;
+		rc = idr_pre_get(&client->idr, GFP_KERNEL);
+		if (!rc)
+			return -ENOMEM;
+		rc = idr_get_new_above(&client->idr, handle, 1, &id);
+		handle->id = id;
+	} while (rc == -EAGAIN);
+
+	if (rc < 0)
+		return rc;
 
 	while (*p) {
 		parent = *p;
@@ -422,6 +435,8 @@ static void ion_handle_add(struct ion_client *client, struct ion_handle *handle)
 
 	rb_link_node(&handle->node, parent, p);
 	rb_insert_color(&handle->node, &client->handles);
+
+	return 0;
 }
 
 struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
@@ -432,6 +447,7 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 	struct ion_device *dev = client->dev;
 	struct ion_buffer *buffer = NULL;
 	struct ion_heap *heap;
+	int ret;
 
 	pr_debug("%s: len %d align %d heap_id_mask %u flags %x\n", __func__,
 		 len, align, heap_id_mask, flags);
@@ -471,12 +487,16 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 	 */
 	ion_buffer_put(buffer);
 
-	if (!IS_ERR(handle)) {
-		mutex_lock(&client->lock);
-		ion_handle_add(client, handle);
-		mutex_unlock(&client->lock);
-	}
+	if (IS_ERR(handle))
+		return handle;
 
+	mutex_lock(&client->lock);
+	ret = ion_handle_add(client, handle);
+	mutex_unlock(&client->lock);
+	if (ret) {
+		ion_handle_put(handle);
+		handle = ERR_PTR(ret);
+	}
 
 	return handle;
 }
@@ -496,8 +516,8 @@ void ion_free(struct ion_client *client, struct ion_handle *handle)
 		mutex_unlock(&client->lock);
 		return;
 	}
-	ion_handle_put(handle);
 	mutex_unlock(&client->lock);
+	ion_handle_put(handle);
 }
 EXPORT_SYMBOL(ion_free);
 
