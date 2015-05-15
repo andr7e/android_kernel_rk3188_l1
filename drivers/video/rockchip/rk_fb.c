@@ -1909,7 +1909,9 @@ int rk_fb_switch_screen(rk_screen *screen ,int enable ,int lcdc_id)
 	#elif defined(CONFIG_ONE_LCDC_DUAL_OUTPUT_INF)
 		info->fbops->fb_pan_display(hdmi_var,info);
 	#endif 
-	info->fbops->fb_ioctl(info,RK_FBIOSET_CONFIG_DONE,0);
+	if(dev_drv->lcdc_reg_update)
+		dev_drv->lcdc_reg_update(dev_drv);
+//	info->fbops->fb_ioctl(info,RK_FBIOSET_CONFIG_DONE,0);
 	if(dev_drv->screen1) //for one lcdc use  scaler for dual dispaly
 	{
 		if(dev_drv->screen0->sscreen_set)
@@ -2008,7 +2010,9 @@ int rk_fb_disp_scale(u8 scale_x, u8 scale_y,u8 lcdc_id)
 	hdmi_ysize = ysize;
 
 	info->fbops->fb_set_par(info);
-	info->fbops->fb_ioctl(info,RK_FBIOSET_CONFIG_DONE,0);
+
+	if(dev_drv->lcdc_reg_update)
+		dev_drv->lcdc_reg_update(dev_drv);
 	return 0;
 	
 	
@@ -2384,7 +2388,9 @@ int rk_fb_register(struct rk_lcdc_device_driver *dev_drv,
 			fb_inf->fb[0]->fbops->fb_pan_display(&(fb_inf->fb[0]->var), fb_inf->fb[0]);
 		}
 #endif
-	fb_inf->fb[0]->fbops->fb_ioctl(fb_inf->fb[0],RK_FBIOSET_CONFIG_DONE,0);
+		if(dev_drv->lcdc_reg_update)
+			dev_drv->lcdc_reg_update(dev_drv);
+//	fb_inf->fb[0]->fbops->fb_ioctl(fb_inf->fb[0],RK_FBIOSET_CONFIG_DONE,0);
 		
     }
 #endif
