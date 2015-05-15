@@ -27,11 +27,11 @@
 #include <linux/file.h>
 #include <linux/kthread.h>
 
-#define RK30_MAX_LCDC_SUPPORT	4
-#define RK30_MAX_LAYER_SUPPORT	16  //  4
-#define RK_MAX_FB_SUPPORT       8
-
-
+#define RK30_MAX_LCDC_SUPPORT	2
+#define RK30_MAX_LAYER_SUPPORT	5
+#define RK_MAX_FB_SUPPORT       5
+#define RK_WIN_MAX_AREA		4
+#define RK_MAX_BUF_NUM		11
 
 #define FB0_IOCTL_STOP_TIMER_FLUSH		0x6001
 #define FB0_IOCTL_SET_PANEL				0x6002
@@ -52,7 +52,9 @@
 #define RK_FBIOGET_IDLEFBUff_16OR32    	0X4622
 #define RK_FBIOSET_COMPOSE_LAYER_COUNTS    0X4623
 
-#define RK_FBIOSET_ROTATE            	0x5003
+#define RK_FBIOGET_DMABUF_FD		0x5003
+#define RK_FBIOSET_DMABUF_FD		0x5004
+//#define RK_FBIOSET_ROTATE            	0x5003
 #define RK_FB_IOCTL_SET_I2P_ODD_ADDR       0x5005
 #define RK_FB_IOCTL_SET_I2P_EVEN_ADDR      0x5006
 #define RK_FBIOSET_OVERLAY_STATE     	0x5018
@@ -99,68 +101,73 @@ extern bool rk_fb_poll_wait_frame_complete(void);
  */
 
 enum {
-    HAL_PIXEL_FORMAT_RGBA_8888          = 1,
-    HAL_PIXEL_FORMAT_RGBX_8888          = 2,
-    HAL_PIXEL_FORMAT_RGB_888            = 3,
-    HAL_PIXEL_FORMAT_RGB_565            = 4,
-    HAL_PIXEL_FORMAT_BGRA_8888          = 5,
-    HAL_PIXEL_FORMAT_RGBA_5551          = 6,
-    HAL_PIXEL_FORMAT_RGBA_4444          = 7,
+	HAL_PIXEL_FORMAT_RGBA_8888 = 1,
+	HAL_PIXEL_FORMAT_RGBX_8888 = 2,
+	HAL_PIXEL_FORMAT_RGB_888 = 3,
+	HAL_PIXEL_FORMAT_RGB_565 = 4,
+	HAL_PIXEL_FORMAT_BGRA_8888 = 5,
+	HAL_PIXEL_FORMAT_RGBA_5551 = 6,
+	HAL_PIXEL_FORMAT_RGBA_4444 = 7,
 
-    /* 0x8 - 0xFF range unavailable */
+	/* 0x8 - 0xFF range unavailable */
 
-    /*
-     * 0x100 - 0x1FF
-     *
-     * This range is reserved for pixel formats that are specific to the HAL
-     * implementation.  Implementations can use any value in this range to
-     * communicate video pixel formats between their HAL modules.  These formats
-     * must not have an alpha channel.  Additionally, an EGLimage created from a
-     * gralloc buffer of one of these formats must be supported for use with the
-     * GL_OES_EGL_image_external OpenGL ES extension.
-     */
+	/*
+	 * 0x100 - 0x1FF
+	 *
+	 * This range is reserved for pixel formats that are specific to the HAL
+	 * implementation.  Implementations can use any value in this range to
+	 * communicate video pixel formats between their HAL modules.  These formats
+	 * must not have an alpha channel.  Additionally, an EGLimage created from a
+	 * gralloc buffer of one of these formats must be supported for use with the
+	 * GL_OES_EGL_image_external OpenGL ES extension.
+	 */
 
-    /*
-     * Android YUV format:
-     *
-     * This format is exposed outside of the HAL to software decoders and
-     * applications.  EGLImageKHR must support it in conjunction with the
-     * OES_EGL_image_external extension.
-     *
-     * YV12 is a 4:2:0 YCrCb planar format comprised of a WxH Y plane followed
-     * by (W/2) x (H/2) Cr and Cb planes.
-     *
-     * This format assumes
-     * - an even width
-     * - an even height
-     * - a horizontal stride multiple of 16 pixels
-     * - a vertical stride equal to the height
-     *
-     *   y_size = stride * height
-     *   c_size = ALIGN(stride/2, 16) * height/2
-     *   size = y_size + c_size * 2
-     *   cr_offset = y_size
-     *   cb_offset = y_size + c_size
-     *
-     */
-    HAL_PIXEL_FORMAT_YV12   = 0x32315659, // YCrCb 4:2:0 Planar
+	/*
+	 * Android YUV format:
+	 *
+	 * This format is exposed outside of the HAL to software decoders and
+	 * applications.  EGLImageKHR must support it in conjunction with the
+	 * OES_EGL_image_external extension.
+	 *
+	 * YV12 is a 4:2:0 YCrCb planar format comprised of a WxH Y plane followed
+	 * by (W/2) x (H/2) Cr and Cb planes.
+	 *
+	 * This format assumes
+	 * - an even width
+	 * - an even height
+	 * - a horizontal stride multiple of 16 pixels
+	 * - a vertical stride equal to the height
+	 *
+	 *   y_size = stride * height
+	 *   c_size = ALIGN(stride/2, 16) * height/2
+	 *   size = y_size + c_size * 2
+	 *   cr_offset = y_size
+	 *   cb_offset = y_size + c_size
+	 *
+	 */
+	HAL_PIXEL_FORMAT_YV12 = 0x32315659,	// YCrCb 4:2:0 Planar
 
+	/* Legacy formats (deprecated), used by ImageFormat.java */
+	HAL_PIXEL_FORMAT_YCbCr_422_SP = 0x10,	// NV16
+	HAL_PIXEL_FORMAT_YCrCb_420_SP = 0x11,	// NV21
+	HAL_PIXEL_FORMAT_YCbCr_422_I = 0x14,	// YUY2
+	HAL_PIXEL_FORMAT_YCrCb_NV12 = 0x20,	// YUY2
+	HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO = 0x21,	// YUY2
+	
+	HAL_PIXEL_FORMAT_YCrCb_NV12_10	    = 0x22, // YUV420_1obit
+	HAL_PIXEL_FORMAT_YCbCr_422_SP_10	= 0x23, // YUV422_1obit
+	HAL_PIXEL_FORMAT_YCrCb_420_SP_10	= 0x24, //YUV444_1obit
 
-
-    /* Legacy formats (deprecated), used by ImageFormat.java */
-    HAL_PIXEL_FORMAT_YCbCr_422_SP       = 0x10, // NV16
-    HAL_PIXEL_FORMAT_YCrCb_420_SP       = 0x11, // NV21
-    HAL_PIXEL_FORMAT_YCbCr_422_I        = 0x14, // YUY2
-    HAL_PIXEL_FORMAT_YCrCb_NV12         = 0x20, // YUY2
-    HAL_PIXEL_FORMAT_YCrCb_NV12_VIDEO   = 0x21, // YUY2
-    HAL_PIXEL_FORMAT_YCrCb_444          = 0x22, //yuv444
-
-
+	HAL_PIXEL_FORMAT_YCrCb_444 = 0x25,	//yuv444
+	HAL_PIXEL_FORMAT_FBDC_RGB565	= 0x26,
+	HAL_PIXEL_FORMAT_FBDC_U8U8U8U8	= 0x27, /*ARGB888*/
+	HAL_PIXEL_FORMAT_FBDC_U8U8U8	= 0x28, /*RGBP888*/
+	HAL_PIXEL_FORMAT_FBDC_RGBA888	= 0x29, /*ABGR888*/
 };
 
 
 //display data format
-enum data_format{
+enum data_format {
 	ARGB888 = 0,
 	RGB888,
 	RGB565,
@@ -170,6 +177,14 @@ enum data_format{
 	XRGB888,
 	XBGR888,
 	ABGR888,
+	YUV420_A = 10,
+	YUV422_A,
+	YUV444_A,
+	YUV420_NV21,
+	FBDC_RGB_565 = 0x26,
+	FBDC_ARGB_888,
+	FBDC_RGBX_888,
+	FBDC_ABGR_888,
 };
 
 enum fb_win_map_order{
@@ -252,6 +267,7 @@ struct layer_par {
 
 struct rk_fb_win_config_data {
 	int	rel_fence_fd[4];
+	short 	ion_fd[RK30_MAX_LAYER_SUPPORT];
 	int     acq_fence_fd[RK30_MAX_LAYER_SUPPORT];//max support 16 laye  rRK30_MAX_LAYER_SUPPORT=16
 	int     wait_fs;
 	u8    	fence_begin;
@@ -259,8 +275,60 @@ struct rk_fb_win_config_data {
 
 };
 
+/*
+ * android 5.0 uapi
+ */
+struct rk_fb_area_par {
+	u8  data_format;        /*layer data fmt*/
+	short ion_fd;
+	u32 phy_addr;
+	short acq_fence_fd;
+	u16  x_offset;
+	u16  y_offset;
+	u16 xpos;	/*start point in panel  --->LCDC_WINx_DSP_ST*/
+	u16 ypos;
+	u16 xsize;	/* display window width/height  -->LCDC_WINx_DSP_INFO*/
+	u16 ysize;
+	u16 xact;	/*origin display window size -->LCDC_WINx_ACT_INFO*/
+	u16 yact;
+	u16 xvir;	/*virtual width/height     -->LCDC_WINx_VIR*/
+	u16 yvir;
+	u8  fbdc_en;
+	u8  fbdc_cor_en;
+	u8  fbdc_data_format;
+	u16 reserved0;
+	u32 reserved1;
+};
+
+
+struct rk_fb_win_par {
+	u8  win_id;
+	u8  z_order;		/*win sel layer*/
+	u8  alpha_mode;
+	u16 g_alpha_val;
+	u8  mirror_en;
+	struct rk_fb_area_par area_par[RK_WIN_MAX_AREA];
+	u32 reserved0;
+};
+
+struct rk_lcdc_post_cfg {
+	u32 xpos;
+	u32 ypos;
+	u32 xsize;
+	u32 ysize;
+};
+
+struct rk_fb_win_cfg_data {
+	u8  wait_fs;
+	short ret_fence_fd;
+	short rel_fence_fd[RK_MAX_BUF_NUM];
+	struct  rk_fb_win_par win_par[RK30_MAX_LAYER_SUPPORT];
+	struct  rk_lcdc_post_cfg post_cfg;
+};
+
 struct rk_fb_dma_buf_data {
 	struct sync_fence *acq_fence;
+	struct ion_handle *hdl;
 };
 
 struct rk_reg_data{
@@ -275,6 +343,7 @@ struct rk_lcdc_device_driver{
 	
 	struct layer_par *layer_par[RK_MAX_FB_SUPPORT];
 	struct layer_par *def_layer_par;
+	struct ion_handle *ion_hdl;
 	int num_layer;
 	int num_buf;				//the num_of buffer
 	int fb_index_base;                     //the first fb index of the lcdc device
@@ -345,6 +414,7 @@ struct rk_fb_inf {
 	int video_mode;  //when play video set it to 1
 	struct workqueue_struct *workqueue;
 	struct delayed_work delay_work;
+	struct ion_client *ion_client;
 };
 extern int rk_fb_register(struct rk_lcdc_device_driver *dev_drv,
 	struct rk_lcdc_device_driver *def_drv,int id);

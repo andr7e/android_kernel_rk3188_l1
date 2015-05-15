@@ -27,6 +27,7 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/earlysuspend.h>
+#include <linux/dma-buf.h>
 #include <asm/div64.h>
 #include <asm/uaccess.h>
 #include <linux/rk_fb.h>
@@ -34,6 +35,7 @@
 #include "hdmi/rk_hdmi.h"
 #include "rga/rga.h"
 #include <linux/linux_logo.h>
+#include <linux/ion.h>
 
 #include <mach/clock.h>
 #include <linux/clk.h>
@@ -55,6 +57,7 @@ EXPORT_SYMBOL(video_data_to_mirroring);
 #endif
 static struct platform_device *g_fb_pdev;
 
+struct ion_client *rockchip_ion_client_create(const char *name);
 static struct rk_fb_rgb def_rgb_16 = {
      red:    { offset: 11, length: 5, },
      green:  { offset: 5,  length: 6, },
@@ -632,9 +635,13 @@ void rk_fd_fence_wait(struct rk_lcdc_device_driver *dev_drv, struct sync_fence *
 
 void rk_fb_free_dma_buf(struct rk_fb_dma_buf_data *dma_buf_data)
 {
-	if(dma_buf_data->acq_fence){
+	struct rk_fb_inf *inf =  platform_get_drvdata(g_fb_pdev);
+
+	if(dma_buf_data->acq_fence)
 		sync_fence_put(dma_buf_data->acq_fence);
-	}
+	if (dma_buf_data->hdl)
+		ion_free(inf->ion_client, dma_buf_data->hdl);
+
 	memset(dma_buf_data, 0, sizeof(struct rk_fb_dma_buf_data));
 }
 static void rk_fb_update_reg(struct rk_lcdc_device_driver * dev_drv,struct rk_reg_data *regs)
@@ -642,28 +649,16 @@ static void rk_fb_update_reg(struct rk_lcdc_device_driver * dev_drv,struct rk_re
 	int i,ret=0;
 	ktime_t timestamp = dev_drv->vsync_info.timestamp;
 
-	struct rk_fb_dma_buf_data old_dma_bufs[RK30_MAX_LAYER_SUPPORT];
-
 	if(dev_drv->lcdc_reg_update)
 		dev_drv->lcdc_reg_update(dev_drv);
 
-	if(dev_drv->wait_fs == 0){
-		ret = wait_event_interruptible_timeout(dev_drv->vsync_info.wait,
+	ret = wait_event_interruptible_timeout(dev_drv->vsync_info.wait,
 			!ktime_equal(timestamp, dev_drv->vsync_info.timestamp),msecs_to_jiffies(dev_drv->cur_screen->ft+5));
-	}
 
 	sw_sync_timeline_inc(dev_drv->timeline, 1);
 
-	if(dev_drv->win_data.acq_fence_fd[0] >= 0)
-	{
-		for(i=0;i<RK30_MAX_LAYER_SUPPORT;i++){
-			if(dev_drv->win_data.acq_fence_fd[i] > 0){
-				put_unused_fd(dev_drv->win_data.acq_fence_fd[i]);
-				printk("acq_fd=%d\n",dev_drv->win_data.acq_fence_fd[i]);
-			}	
-			rk_fb_free_dma_buf(&regs->dma_buf_data[i]);
-		}
-	}
+	for(i=0;i<RK30_MAX_LAYER_SUPPORT;i++)
+		rk_fb_free_dma_buf(&regs->dma_buf_data[i]);
 }
 
 static void rk_fb_update_regs_handler(struct kthread_work *work)
@@ -792,6 +787,218 @@ static int rk_fb_get_list_stat(struct rk_lcdc_device_driver *dev_drv)
 		return 0;
 }
 
+static int rk_fb_data_fmt(int data_format, int bits_per_pixel)
+{
+        int fb_data_fmt;
+        if (data_format) {
+                switch (data_format) {
+                case HAL_PIXEL_FORMAT_RGBX_8888:
+                        fb_data_fmt = XBGR888;
+                        break;
+                case HAL_PIXEL_FORMAT_RGBA_8888:
+                        fb_data_fmt = ABGR888;
+                        break;
+                case HAL_PIXEL_FORMAT_BGRA_8888:
+                        fb_data_fmt = ARGB888;
+                        break;
+                case HAL_PIXEL_FORMAT_RGB_888:
+                        fb_data_fmt = RGB888;
+                        break;
+                case HAL_PIXEL_FORMAT_RGB_565:
+                        fb_data_fmt = RGB565;
+                        break;
+                case HAL_PIXEL_FORMAT_YCbCr_422_SP:     /* yuv422 */
+                        fb_data_fmt = YUV422;
+                        break;
+                case HAL_PIXEL_FORMAT_YCrCb_420_SP:     /* YUV420---vuvuvu */
+                        fb_data_fmt = YUV420_NV21;
+                        break;
+                case HAL_PIXEL_FORMAT_YCrCb_NV12:       /* YUV420---uvuvuv */
+                        fb_data_fmt = YUV420;
+                        break;
+                case HAL_PIXEL_FORMAT_YCrCb_444:        /* yuv444 */
+                        fb_data_fmt = YUV444;
+                        break;
+                case HAL_PIXEL_FORMAT_YCrCb_NV12_10:    /* yuv444 */
+                        fb_data_fmt = YUV420_A;
+                        break;
+                case HAL_PIXEL_FORMAT_YCbCr_422_SP_10:  /* yuv444 */
+                        fb_data_fmt = YUV422_A;
+                        break;
+                case HAL_PIXEL_FORMAT_YCrCb_420_SP_10:  /* yuv444 */
+                        fb_data_fmt = YUV444_A;
+                        break;
+                case HAL_PIXEL_FORMAT_FBDC_RGB565:      /* fbdc rgb565*/
+                        fb_data_fmt = FBDC_RGB_565;
+                        break;
+                case HAL_PIXEL_FORMAT_FBDC_U8U8U8U8:    /* fbdc argb888 */
+                        fb_data_fmt = FBDC_ARGB_888;
+                        break;
+                case HAL_PIXEL_FORMAT_FBDC_RGBA888:     /* fbdc abgr888 */
+                        fb_data_fmt = FBDC_ABGR_888;
+                        break;
+                case HAL_PIXEL_FORMAT_FBDC_U8U8U8:      /* fbdc rgb888 */
+                        fb_data_fmt = FBDC_RGBX_888;
+                        break;
+                default:
+                        printk(KERN_WARNING "%s:un supported format:0x%x\n",
+                               __func__, data_format);
+                        return -EINVAL;
+                }
+        } else {
+                switch (bits_per_pixel) {
+                case 32:
+                        fb_data_fmt = ARGB888;
+                        break;
+                case 24:
+                        fb_data_fmt = RGB888;
+                        break;
+                case 16:
+                        fb_data_fmt = RGB565;
+                        break;
+                default:
+                        printk(KERN_WARNING
+                               "%s:un supported bits_per_pixel:%d\n", __func__,
+                               bits_per_pixel);
+                        break;
+                }
+        }
+        return fb_data_fmt;
+}
+
+struct fb_info * rk_get_fb(int fb_id);
+static int rk_fb_set_config(struct rk_lcdc_device_driver *dev_drv, struct rk_fb_win_cfg_data *req_cfg)
+{
+	int i, ret;
+	struct rk_fb_inf *inf = platform_get_drvdata(g_fb_pdev);
+	struct sync_fence *release_fence[RK_MAX_BUF_NUM];
+	struct sync_fence *retire_fence;
+	struct sync_pt *release_sync_pt[RK_MAX_BUF_NUM];
+	struct sync_pt *retire_sync_pt;
+	char fence_name[20];
+	struct rk_reg_data *regs;
+
+	regs = kzalloc(sizeof(struct rk_reg_data), GFP_KERNEL);
+	if (!regs)
+		return -ENOMEM;
+
+	for(i = 0; i < RK30_MAX_LAYER_SUPPORT; i++) {
+		struct rk_fb_win_par *win_par = &req_cfg->win_par[i];
+		struct rk_fb_area_par *area_par = &win_par->area_par[0];
+		struct fb_info *info = rk_get_fb(i);
+		struct fb_var_screeninfo *var = &info->var;
+		struct fb_fix_screeninfo *fix = &info->fix;
+		ion_phys_addr_t phy_addr;
+		struct ion_handle *hdl;
+		int ion_fd;
+		size_t len;
+
+		if (!area_par->ion_fd)
+			continue;
+
+		var->xoffset = area_par->x_offset;
+		var->yoffset = area_par->y_offset;
+		var->nonstd = area_par->xpos << 8 | area_par->ypos << 20 | area_par->data_format;
+		var->xres_virtual = area_par->xvir;
+		var->yres_virtual = area_par->yvir;
+		var->grayscale = area_par->xsize << 8 | area_par->ysize << 20;
+		var->xres = area_par->xact;
+		var->yres = area_par->yact;
+
+		ion_fd = area_par[0].ion_fd;
+		hdl = ion_import_dma_buf(inf->ion_client, ion_fd);
+		if (IS_ERR(hdl)) {
+			pr_info("%s: Could not import handle:"
+					" %ld\n", __func__, (long)hdl);
+			/*return -EINVAL; */
+			break;
+		}
+		ret = ion_phys(inf->ion_client, hdl, &phy_addr, &len);
+		if (ret < 0) {
+			dev_err(info->dev, "ion map to get phy addr failed\n");
+			ion_free(inf->ion_client, hdl);
+			return -ENOMEM;
+		}
+		fix->smem_start = phy_addr;
+		fix->smem_len = len;
+		info->fbops->fb_set_par(info);
+		info->fbops->fb_pan_display(var, info);
+
+		regs->dma_buf_data[i].hdl = hdl;
+#if 0
+		regs->dma_buf_data[i].acq_fence =
+			sync_fence_fdget(area_par->acq_fence_fd);
+
+		sprintf(fence_name, "fence%d", i);
+		req_cfg->rel_fence_fd[i] = get_unused_fd();
+		if (req_cfg->rel_fence_fd[i] < 0) {
+			printk(KERN_INFO "rel_fence_fd=%d\n",
+					req_cfg->rel_fence_fd[i]);
+		}
+		release_sync_pt[i] =
+			sw_sync_pt_create(dev_drv->timeline,
+					dev_drv->timeline_max);
+		release_fence[i] =
+			sync_fence_create(fence_name, release_sync_pt[i]);
+		sync_fence_install(release_fence[i],
+				req_cfg->rel_fence_fd[i]);
+#endif
+	}
+#if 1
+#if 0
+	req_cfg->ret_fence_fd = get_unused_fd();
+	if (req_cfg->ret_fence_fd < 0) {
+		pr_err("ret_fence_fd=%d\n", req_cfg->ret_fence_fd);
+	}
+
+	retire_sync_pt = sw_sync_pt_create(dev_drv->timeline, dev_drv->timeline_max);
+	retire_fence = sync_fence_create("ret_fence", retire_sync_pt);
+	sync_fence_install(retire_fence, req_cfg->ret_fence_fd);
+#endif
+	mutex_lock(&dev_drv->update_regs_list_lock);
+	dev_drv->timeline_max++;
+
+
+	list_add_tail(&regs->list,&dev_drv->update_regs_list);
+	mutex_unlock(&dev_drv->update_regs_list_lock);
+
+	queue_kthread_work(&dev_drv->update_regs_worker,
+			&dev_drv->update_regs_work);
+#else
+#if 0
+		if(dev_drv->lcdc_reg_update)
+			dev_drv->lcdc_reg_update(dev_drv);
+
+		for (i = 0; i < RK_MAX_BUF_NUM; i++) {
+			if (dev_drv->win_data.ion_handle != NULL)
+				ion_free(inf->ion_client, dev_drv->win_data.ion_handle);
+
+			win_data.rel_fence_fd[i] = -1;
+		}
+
+		win_data.ret_fence_fd = -1;
+#endif
+#endif
+#if 0
+#if defined(CONFIG_RK_HDMI)
+#if defined(CONFIG_DUAL_LCDC_DUAL_DISP_IN_KERNEL)
+	if((hdmi_get_hotplug() == HDMI_HPD_ACTIVED) && (hdmi_switch_complete))
+	{
+		if(inf->num_fb >= 2)
+		{
+			extend_fb_id = get_extend_fb_id(info->fix.id);
+			info2 = inf->fb[(inf->num_fb>>1) + extend_fb_id];
+			dev_drv1 = (struct rk_lcdc_device_driver * )info2->par;
+			if(dev_drv1->lcdc_reg_update)
+				dev_drv1->lcdc_reg_update(dev_drv1);
+		}
+	}
+#endif
+#endif
+#endif
+	return 0;
+}
+
 static int rk_fb_ioctl(struct fb_info *info, unsigned int cmd,unsigned long arg)
 {
 	struct fb_fix_screeninfo *fix = &info->fix;
@@ -809,6 +1016,7 @@ static int rk_fb_ioctl(struct fb_info *info, unsigned int cmd,unsigned long arg)
 	int num_buf; //buffer_number
 	int ret,i;
 	
+	struct rk_fb_win_cfg_data win_data;
 	struct rk_reg_data *regs;
 	struct sync_fence *release_fence;
 	struct sync_fence *retire_fence;
@@ -879,79 +1087,56 @@ static int rk_fb_ioctl(struct fb_info *info, unsigned int cmd,unsigned long arg)
 				return -EFAULT;
 
 			break;			
-		case RK_FBIOSET_CONFIG_DONE:
-			ret = copy_from_user(&(dev_drv->win_data),(struct rk_fb_win_config_data __user *)argp,sizeof(dev_drv->win_data));
-			dev_drv->wait_fs = dev_drv->win_data.wait_fs;
-			fence_wait_begin = dev_drv->win_data.fence_begin;
-			if((fence_wait_begin == 1)&&(dev_drv->suspend_flag == 0)){	
-				dev_drv->win_data.rel_fence_fd[0] =  get_unused_fd();
-				if (dev_drv->win_data.rel_fence_fd[0] < 0){
-					printk("rel_fence_fd=%d\n",dev_drv->win_data.rel_fence_fd[0]);
+#if defined(CONFIG_ION_ROCKCHIP)
+		case RK_FBIOSET_DMABUF_FD:
+			{
+				int usr_fd;
+				struct ion_handle *hdl;
+				ion_phys_addr_t phy_addr;
+				size_t len;
+				if (copy_from_user(&usr_fd, argp, sizeof(usr_fd)))
 					return -EFAULT;
-				}
-
-				dev_drv->win_data.rel_fence_fd[1] =  get_unused_fd();
-				if (dev_drv->win_data.rel_fence_fd[1] < 0){
-					printk("rel_fence_fd=%d\n",dev_drv->win_data.rel_fence_fd[1]);
-					return -EFAULT;
-				}
-
-				dev_drv->win_data.ret_fence_fd =  get_unused_fd();
-				if (dev_drv->win_data.ret_fence_fd < 0){
-					printk("%s,ret_fence_fd=%d\n",dev_drv->win_data.ret_fence_fd);
-					return -EFAULT;
-				}
-				mutex_lock(&dev_drv->update_regs_list_lock);
-				dev_drv->timeline_max++;
-				release_sync_pt = sw_sync_pt_create(dev_drv->timeline, dev_drv->timeline_max);
-				release_fence = sync_fence_create("rel_fence", release_sync_pt);
-				sync_fence_install(release_fence, dev_drv->win_data.rel_fence_fd[0]);
-
-				layer2_pt = sw_sync_pt_create(dev_drv->timeline, dev_drv->timeline_max);
-				layer2_fence= sync_fence_create("rel2_fence", layer2_pt);
-				sync_fence_install(layer2_fence, dev_drv->win_data.rel_fence_fd[1]);
-
-				retire_sync_pt = sw_sync_pt_create(dev_drv->timeline, dev_drv->timeline_max);
-				retire_fence = sync_fence_create("ret_fence", retire_sync_pt);
-				sync_fence_install(retire_fence, dev_drv->win_data.ret_fence_fd);
-
-				regs = kzalloc(sizeof(struct rk_reg_data), GFP_KERNEL);
-				if (dev_drv->wait_fs == 1) {
-					rk_fb_update_reg(dev_drv,regs);
-					kfree(regs);
-					mutex_unlock(&dev_drv->update_regs_list_lock);
-				} else {
-					list_add_tail(&regs->list,&dev_drv->update_regs_list);
-					mutex_unlock(&dev_drv->update_regs_list_lock);
-
-					queue_kthread_work(&dev_drv->update_regs_worker,
-						&dev_drv->update_regs_work);
-				}		
-			} else {
-				if(dev_drv->lcdc_reg_update)
-					dev_drv->lcdc_reg_update(dev_drv);	
+				hdl = ion_import_dma_buf(inf->ion_client, usr_fd);
+				ion_phys(inf->ion_client, hdl, &phy_addr, &len);
+				fix->smem_start = phy_addr;
+				break;
 			}
-			if (copy_to_user((struct rk_fb_win_config_data __user *)arg,
-				 &dev_drv->win_data,
-				 sizeof(dev_drv->win_data))) {
+		case RK_FBIOGET_DMABUF_FD:
+			{
+				int fd = -1;
+
+				if (IS_ERR_OR_NULL(dev_drv->ion_hdl)) {
+					dev_err(info->dev,
+							"get dma_buf fd failed,ion handle is err\n");
+					return PTR_ERR(dev_drv->ion_hdl);
+				}
+				fd = ion_share_dma_buf_fd(inf->ion_client,
+						dev_drv->ion_hdl);
+				if (fd < 0) {
+					dev_err(info->dev,
+							"ion_share_dma_buf_fd failed\n");
+					return fd;
+				}
+				if (copy_to_user(argp, &fd, sizeof(fd)))
+					return -EFAULT;
+				break;
+			}
+#endif
+		case RK_FBIOSET_CONFIG_DONE:
+			if (copy_from_user(&win_data,
+						(struct rk_fb_win_cfg_data __user *)argp,
+						sizeof(win_data))) {
+				ret = -EFAULT;
+				break;
+			};
+			rk_fb_set_config(dev_drv, &win_data);
+
+			if (copy_to_user((struct rk_fb_win_cfg_data __user *)arg,
+					 &win_data, sizeof(win_data))) {
 				ret = -EFAULT;
 				break;
 			}
-	#if defined(CONFIG_RK_HDMI)
-		#if defined(CONFIG_DUAL_LCDC_DUAL_DISP_IN_KERNEL)
-			if((hdmi_get_hotplug() == HDMI_HPD_ACTIVED) && (hdmi_switch_complete))
-			{
-				if(inf->num_fb >= 2)
-				{
-					extend_fb_id = get_extend_fb_id(info->fix.id);
-					info2 = inf->fb[(inf->num_fb>>1) + extend_fb_id];
-					dev_drv1 = (struct rk_lcdc_device_driver * )info2->par;
-					if(dev_drv1->lcdc_reg_update)
-						dev_drv1->lcdc_reg_update(dev_drv1);
-				}
-			}
-		#endif 
-	#endif
+
 			break;
         	default:
 			dev_drv->ioctl(dev_drv,cmd,arg,layer_id);
@@ -960,7 +1145,6 @@ static int rk_fb_ioctl(struct fb_info *info, unsigned int cmd,unsigned long arg)
     return 0;
 err:
     return -1;
-	
 }
 
 static int rk_fb_blank(int blank_mode, struct fb_info *info)
@@ -1388,12 +1572,38 @@ static int fb_setcolreg(unsigned regno,
 
 	return 0;
 }
+ 
+static int rk_fb_mmap(struct fb_info *info, struct vm_area_struct *vma)
+{
+	struct rk_fb_inf *inf =  platform_get_drvdata(g_fb_pdev);
+	struct rk_lcdc_device_driver * dev_drv = (struct rk_lcdc_device_driver * )info->par;
+	struct rk_fb_par *fb_par = (struct rk_fb_par *)info->par;
+	struct ion_handle *handle = dev_drv->ion_hdl;
+	struct dma_buf *dma_buf = NULL;
+
+	if (IS_ERR_OR_NULL(handle)) {
+		dev_err(info->dev, "failed to get ion handle:%ld\n",
+			PTR_ERR(handle));
+		return -ENOMEM;
+	}
+	dma_buf = ion_share_dma_buf(inf->ion_client, handle);
+	if (IS_ERR_OR_NULL(dma_buf)) {
+		printk("get ion share dma buf failed\n");
+		return -ENOMEM;
+	}
+
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+	return dma_buf_mmap(dma_buf, vma, 0);
+}
+
 
 static struct fb_ops fb_ops = {
     .owner          = THIS_MODULE,
     .fb_open        = rk_fb_open,
     .fb_release     = rk_fb_close,
     .fb_check_var   = rk_fb_check_var,
+    .fb_mmap	    = rk_fb_mmap,
     .fb_set_par     = rk_fb_set_par,
     .fb_blank       = rk_fb_blank,
     .fb_ioctl       = rk_fb_ioctl,
@@ -1813,8 +2023,42 @@ static int rk_request_fb_buffer(struct fb_info *fbi,int fb_id)
 	struct resource *mem;
 	int ret = 0;
 	struct rk_fb_inf *fb_inf = platform_get_drvdata(g_fb_pdev);
-	if (!strcmp(fbi->fix.id,"fb0"))
-	{
+	struct ion_handle *handle;
+        ion_phys_addr_t phy_addr;
+	size_t len;
+
+#if 1
+	if (fb_inf->ion_client) {
+		if (!strcmp(fbi->fix.id, "fb0")) {
+			size_t fb_mem_size;
+
+			fb_mem_size = get_fb_size();
+			handle = ion_alloc(fb_inf->ion_client, fb_mem_size, 0,
+					ION_HEAP_CARVEOUT_MASK, 0);
+			ret = ion_phys(fb_inf->ion_client, handle, &phy_addr, &len);
+			if (ret < 0) {
+				dev_err(fbi->dev, "ion map to get phy addr failed\n");
+			}
+			fbi->fix.smem_start = phy_addr;
+			fbi->fix.smem_len = len;
+			fbi->screen_base = ion_map_kernel(fb_inf->ion_client, handle);
+			fbi->screen_size = fbi->fix.smem_len;
+			memset(fbi->screen_base, 0, fbi->fix.smem_len);
+
+			dev_drv->ion_hdl = handle;
+		} else {
+			fbi->fix.smem_start = fb_inf->fb[0]->fix.smem_start;
+			fbi->fix.smem_len = fb_inf->fb[0]->fix.smem_len;
+			fbi->screen_base = fb_inf->fb[0]->screen_base;
+		}
+
+		pr_info("%s:phy:%lx>>vir:%p>>len:0x%x\n", fbi->fix.id,
+				fbi->fix.smem_start, fbi->screen_base,
+				fbi->fix.smem_len);
+	}
+#else
+	else
+	if (!strcmp(fbi->fix.id,"fb0")) {
 		res = platform_get_resource_byname(g_fb_pdev, IORESOURCE_MEM, "fb0 buf");
 		if (res == NULL)
 		{
@@ -1828,9 +2072,7 @@ static int rk_request_fb_buffer(struct fb_info *fbi,int fb_id)
 		memset(fbi->screen_base, 0, fbi->fix.smem_len);
 		printk("fb%d:phy:%lx>>vir:%p>>len:0x%x\n",fb_id,
 		fbi->fix.smem_start,fbi->screen_base,fbi->fix.smem_len);
-	}
-	else
-	{	
+	} else {	
 #if defined(CONFIG_FB_ROTATE) || !defined(CONFIG_THREE_FB_BUFFER)
 		res = platform_get_resource_byname(g_fb_pdev, IORESOURCE_MEM, "fb2 buf");
 		if (res == NULL)
@@ -1859,6 +2101,7 @@ static int rk_request_fb_buffer(struct fb_info *fbi,int fb_id)
 		par = dev_drv->layer_par[layer_id];
 		par->reserved = fbi->fix.smem_start;
 	}
+#endif
 
     return ret;
 }
@@ -2247,6 +2490,13 @@ static int __devinit rk_fb_probe (struct platform_device *pdev)
     	}
 	platform_set_drvdata(pdev,fb_inf);
 
+	fb_inf->ion_client = rockchip_ion_client_create("rk_fb");
+        if (IS_ERR(fb_inf->ion_client)) {
+                dev_err(&pdev->dev, "failed to create ion client for rk fb");
+                return PTR_ERR(fb_inf->ion_client);
+        } else {
+                dev_info(&pdev->dev, "rk fb ion client create success!\n");
+        }   
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	suspend_info.inf = fb_inf;
 	register_early_suspend(&suspend_info.early_suspend);
