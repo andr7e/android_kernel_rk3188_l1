@@ -2349,11 +2349,17 @@ static void __init rk30_reserve(void)
 		rk30_ion_pdata.heaps[0].size = ION_RESERVE_SIZE;
 		ion_reserve_size = ION_RESERVE_SIZE;
 	}
+	rk30_ion_pdata.heaps[0].size += get_fb_size();
+	ion_reserve_size += get_fb_size();
 	printk("ddr size = %d M, set ion_reserve_size size to %d\n", size, ion_reserve_size);
 	//rk30_ion_pdata.heaps[0].base = board_mem_reserve_add("ion", ION_RESERVE_SIZE);
 	rk30_ion_pdata.heaps[0].base = board_mem_reserve_add("ion", ion_reserve_size);
 #endif
-#ifdef CONFIG_FB_ROCKCHIP
+/*
+ * get fbbuf from ion
+ */
+//#ifdef CONFIG_FB_ROCKCHIP
+#if 0
 	resource_fb[0].start = board_mem_reserve_add("fb0 buf", get_fb_size());
 	resource_fb[0].end = resource_fb[0].start + get_fb_size()- 1;
 #if 0
