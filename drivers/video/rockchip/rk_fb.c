@@ -40,6 +40,7 @@
 #include <mach/clock.h>
 #include <linux/clk.h>
 
+#define RK_FB_CFG_DONE_FLAG 1
 void rk29_backlight_set(bool on);
 bool rk29_get_backlight_status(void);
 
@@ -764,6 +765,10 @@ static int rk_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 					#endif
 					dev_drv1->pan_display(dev_drv1,layer_id2);
 					//queue_delayed_work(inf->workqueue, &inf->delay_work,0);
+					if (!(var->grayscale & RK_FB_CFG_DONE_FLAG)) {
+						if(dev_drv1->lcdc_reg_update)
+							dev_drv1->lcdc_reg_update(dev_drv);
+					}
 				}
 			}
 		#endif
@@ -773,6 +778,11 @@ static int rk_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 	if(video_data_to_mirroring!=NULL)
 		video_data_to_mirroring(info,NULL);
  	#endif
+	if (!(var->grayscale & RK_FB_CFG_DONE_FLAG)) {
+		if(dev_drv->lcdc_reg_update)
+			dev_drv->lcdc_reg_update(dev_drv);
+	}
+
 	return 0;
 }
 
@@ -901,7 +911,7 @@ static int rk_fb_set_config(struct rk_lcdc_device_driver *dev_drv, struct rk_fb_
 		var->nonstd = area_par->xpos << 8 | area_par->ypos << 20 | area_par->data_format;
 		var->xres_virtual = area_par->xvir;
 		var->yres_virtual = area_par->yvir;
-		var->grayscale = area_par->xsize << 8 | area_par->ysize << 20;
+		var->grayscale = area_par->xsize << 8 | area_par->ysize << 20 | RK_FB_CFG_DONE_FLAG;
 		var->xres = area_par->xact;
 		var->yres = area_par->yact;
 
