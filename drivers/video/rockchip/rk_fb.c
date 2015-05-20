@@ -892,7 +892,7 @@ static int rk_fb_set_config(struct rk_lcdc_device_driver *dev_drv, struct rk_fb_
 	if (!regs)
 		return -ENOMEM;
 
-	for(i = 0; i < RK30_MAX_LAYER_SUPPORT; i++) {
+	for(i = 0; i < dev_drv->num_layer; i++) {
 		struct rk_fb_win_par *win_par = &req_cfg->win_par[i];
 		struct rk_fb_area_par *area_par = &win_par->area_par[0];
 		struct fb_info *info = rk_get_fb(i);
@@ -903,8 +903,12 @@ static int rk_fb_set_config(struct rk_lcdc_device_driver *dev_drv, struct rk_fb_
 		int ion_fd;
 		size_t len;
 
-		if (!area_par->ion_fd)
+		if (!area_par->ion_fd) {
+			info->fbops->fb_release(info, 1);
 			continue;
+		}
+
+		info->fbops->fb_open(info, 1);
 
 		var->xoffset = area_par->x_offset;
 		var->yoffset = area_par->y_offset;
