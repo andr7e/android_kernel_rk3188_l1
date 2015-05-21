@@ -43,6 +43,10 @@
 #include <linux/fb.h>
 #include <linux/wakelock.h>
 
+#if defined(CONFIG_ION_ROCKCHIP)
+#include <linux/rockchip_ion.h>
+#endif
+
 #include "rga.h"
 #include "rga_reg_info.h"
 #include "rga_mmu_info.h"
@@ -59,6 +63,8 @@
 
 #define RGA_POWER_OFF_DELAY	4*HZ /* 4s */
 #define RGA_TIMEOUT_DELAY	2*HZ /* 2s */
+#define RGA_FENCE_TIMEOUT_DELAY	(20)	/* 200ms */
+
 
 #define RGA_MAJOR		255
 
@@ -74,8 +80,23 @@
 
 #define RGA_VERSION   "1.003"
 
+#define RGA_GET_SRC_FENCE_ERROR     -190
+#define RGA_GET_DST_FENCE_ERROR     -191
+#define RGA_GET_FENCE_PT_ERROR      -192
+#define RGA_DMA_BUF_COPY_ERROR      -201
+#define RGA_COPY_FROM_USER_ERROR    -202
+#define RGA_UNKONW_CMD_ERROR        -203
+#define RGA_CHECK_PARAM_ERROR       -204
+#define RGA_GEN_REG_ERROR           -205
+#define RGA_TIMEOUT_NUM_ERROR       -206
+
+
 ktime_t rga_start;
 ktime_t rga_end;
+
+uint32_t rga_fence_create_num = 0;
+uint32_t rga_fence_interrupt_num = 0;
+uint32_t rga_fence_timeout_num = 0;
 
 rga_session rga_session_global;
 
@@ -92,6 +113,8 @@ struct rga_drvdata {
 	struct clk *aclk_rga;
 	struct clk *hclk_rga;
 	struct clk *pd_rga;
+
+	struct ion_client *ion_client;
 };
 
 static struct rga_drvdata *drvdata;
@@ -480,6 +503,14 @@ static struct rga_reg * rga_reg_init(rga_session *session, struct rga_req *req)
     mutex_lock(&rga_service.lock);
 	list_add_tail(&reg->status_link, &rga_service.waiting);
 	list_add_tail(&reg->session_link, &session->waiting);
+    reg->fence =
+		rga_service.src_fence_flag > 0 ?
+		sync_fence_fdget(rga_service.src_fence_fd) : NULL;
+	reg->dst_fence =
+		rga_service.dst_fence_flag > 0 ?
+		sync_fence_fdget(rga_service.dst_fence_fd) : NULL;
+	if (reg->dst_fence != NULL)
+		sync_fence_put(reg->dst_fence);
 	mutex_unlock(&rga_service.lock);
 
     return reg;
@@ -543,6 +574,17 @@ static struct rga_reg * rga_reg_init_2(rga_session *session, struct rga_req *req
         list_add_tail(&reg0->session_link, &session->waiting);
         list_add_tail(&reg1->status_link, &rga_service.waiting);
     	list_add_tail(&reg1->session_link, &session->waiting);
+        reg0->fence =
+			rga_service.src_fence_flag > 0 ?
+			sync_fence_fdget(rga_service.src_fence_fd) : NULL;
+		reg0->dst_fence = NULL;
+		reg1->fence = NULL;
+		reg1->dst_fence =
+		    rga_service.dst_fence_flag > 0 ?
+		    sync_fence_fdget(rga_service.dst_fence_fd) : NULL;
+
+	    if (reg1->dst_fence != NULL)
+		    sync_fence_put(reg1->dst_fence);
         mutex_unlock(&rga_service.lock);
 
         return reg1;
@@ -598,6 +640,7 @@ static void rga_service_session_clear(rga_session *session)
 static void rga_try_set_reg(void)
 {
     struct rga_reg *reg ;
+    int err;
 
     if (list_empty(&rga_service.running))
     {
@@ -647,6 +690,13 @@ static void rga_try_set_reg(void)
             rga_start = ktime_get();
             #endif
 
+            if (reg->fence != NULL) {
+				err = sync_fence_wait(reg->fence, 10000);
+				sync_fence_put(reg->fence);
+				if (err < 0)
+					pr_info("error wait for src fence\n");
+			}
+
             /* Start proc */
             atomic_set(&reg->session->done, 0);
             rga_write(0x1, RGA_CMD_CTRL);
@@ -684,11 +734,20 @@ static void rga_del_running_list(void)
         atomic_sub(1, &reg->session->task_running);
         atomic_sub(1, &rga_service.total_running);
 
+        if (atomic_read(&rga_service.delay_work_already_queue)) {
+		    cancel_delayed_work(&rga_service.fence_delayed_work);
+			atomic_set(&rga_service.delay_work_already_queue, 0);
+	    }
+
         if(list_empty(&reg->session->waiting))
         {
             atomic_set(&reg->session->done, 1);
             wake_up(&reg->session->wait);
         }
+        if (reg->dst_fence != NULL) {
+			sw_sync_timeline_inc(rga_service.timeline, 1);
+			rga_fence_interrupt_num++;
+		}
 
         rga_reg_deinit(reg);
     }
@@ -737,8 +796,99 @@ static void rga_del_running_list_timeout(void)
             wake_up(&reg->session->wait);
         }
 
+        if (reg->dst_fence != NULL) {
+			sw_sync_timeline_inc(rga_service.timeline, 1);
+			rga_fence_timeout_num++;
+		}
+
         rga_reg_deinit(reg);
     }
+
+    rga_try_set_reg();
+	atomic_set(&rga_service.already_queue, 0);
+	queue_delayed_work(rga_service.fence_workqueue,
+			&rga_service.fence_delayed_work,
+			RGA_FENCE_TIMEOUT_DELAY);
+	atomic_set(&rga_service.delay_work_already_queue, 1);
+	mutex_unlock(&rga_service.lock);
+}
+
+static int rga_convert_dma_buf(struct rga_req *req)
+{
+	struct ion_handle *hdl;
+	ion_phys_addr_t phy_addr;
+	size_t len;
+	int ret;
+	short src_fd, dst_fd;
+	uint32_t src_offset, dst_offset;
+
+	req->sg_src = NULL;
+	req->sg_dst = NULL;
+
+	src_fd = req->line_draw_info.color & 0xffff;
+	dst_fd = (req->line_draw_info.color >> 16) & 0xffff;
+	src_offset = req->line_draw_info.flag;
+	dst_offset = req->line_draw_info.line_width;
+	if (src_fd > 0) {
+		hdl =
+		    ion_import_dma_buf(drvdata->ion_client, src_fd);
+		if (IS_ERR(hdl)) {
+			ret = PTR_ERR(hdl);
+			pr_info("RGA ERROR SRC ion buf handle\n");
+			return ret;
+		}
+		if ((req->mmu_info.mmu_flag >> 8) & 1) {
+			req->sg_src = ion_sg_table(drvdata->ion_client, hdl);
+			req->src.yrgb_addr = req->src.uv_addr;
+			req->src.uv_addr =
+			    req->src.yrgb_addr +
+			    (req->src.vir_w * req->src.vir_h);
+			req->src.v_addr =
+			    req->src.uv_addr +
+			    ((req->src.vir_w * req->src.vir_h) >> 2);
+		} else {
+			ion_phys(drvdata->ion_client, hdl, &phy_addr, &len);
+			req->src.yrgb_addr = phy_addr + src_offset;
+			req->src.uv_addr =
+			    req->src.yrgb_addr +
+			    (req->src.vir_w * req->src.vir_h);
+			req->src.v_addr =
+			    req->src.uv_addr +
+			    ((req->src.vir_w * req->src.vir_h) >> 2);
+		}
+		ion_free(drvdata->ion_client, hdl);
+	}
+
+	if (dst_fd > 0) {
+		hdl = ion_import_dma_buf(drvdata->ion_client,
+					 dst_fd);
+		if (IS_ERR(hdl)) {
+			ret = PTR_ERR(hdl);
+			pr_info("RGA ERROR DST ion buf handle\n");
+			return ret;
+		}
+		if ((req->mmu_info.mmu_flag >> 10) & 1) {
+			req->sg_dst = ion_sg_table(drvdata->ion_client, hdl);
+			req->dst.yrgb_addr = req->dst.uv_addr;
+			req->dst.uv_addr =
+			    req->dst.yrgb_addr +
+			    (req->dst.vir_w * req->dst.vir_h);
+			req->dst.v_addr =
+			    req->dst.uv_addr +
+			    ((req->dst.vir_w * req->dst.vir_h) >> 2);
+		} else {
+			ion_phys(drvdata->ion_client, hdl, &phy_addr, &len);
+			req->dst.yrgb_addr = phy_addr + dst_offset;
+			req->dst.uv_addr =
+			    req->dst.yrgb_addr +
+			    (req->dst.vir_w * req->dst.vir_h);
+			req->dst.v_addr =
+			    req->dst.uv_addr +
+			    ((req->dst.vir_w * req->dst.vir_h) >> 2);
+		}
+		ion_free(drvdata->ion_client, hdl);
+	}
+	return 0;
 }
 
 
@@ -787,10 +937,70 @@ static int rga_blit(rga_session *session, struct rga_req *req)
 
     uint32_t saw, sah, daw, dah;
 
+    struct sync_fence *retire_fence;
+	struct sync_pt *retire_sync_pt;
+
     saw = req->src.act_w;
     sah = req->src.act_h;
     daw = req->dst.act_w;
     dah = req->dst.act_h;
+
+    if (atomic_read(&rga_service.delay_work_already_queue)) {
+		atomic_set(&rga_service.delay_work_already_queue, 0);
+		cancel_delayed_work(&rga_service.fence_delayed_work);
+	}
+	queue_delayed_work(rga_service.fence_workqueue,
+			&rga_service.fence_delayed_work,
+			RGA_FENCE_TIMEOUT_DELAY);
+	atomic_set(&rga_service.delay_work_already_queue, 1);
+
+	rga_service.src_fence_flag =
+		(req->line_draw_info.start_point.y) & 0x1;
+	rga_service.src_fence_fd = -1;
+	if (rga_service.src_fence_flag)
+		rga_service.src_fence_fd =
+		(req->line_draw_info.start_point.x) & 0xffff;
+	rga_service.dst_fence_flag =
+		(req->line_draw_info.end_point.y) & 0x1;
+	rga_service.dst_fence = NULL;
+	if (rga_service.dst_fence_flag) {
+		rga_service.timeline_max++;
+		rga_service.dst_fence_fd = get_unused_fd();
+		if (rga_service.dst_fence_fd < 0) {
+			pr_info("dst_fence_fd=%d\n",
+			rga_service.dst_fence_fd);
+			ret = RGA_GET_SRC_FENCE_ERROR;
+			return ret;
+		}
+		retire_sync_pt =
+			sw_sync_pt_create(rga_service.timeline,
+				rga_service.timeline_max);
+		if (!retire_sync_pt) {
+			pr_info("get retire_sync_pt error\n");
+			rga_service.timeline_max--;
+			ret = RGA_GET_FENCE_PT_ERROR;
+			return ret;
+		}
+		retire_fence =
+			sync_fence_create("rga_ret_fence",
+				retire_sync_pt);
+		if (!retire_fence) {
+			pr_info("get retire_fence error\n");
+			sync_pt_free(retire_sync_pt);
+			rga_service.timeline_max--;
+			ret = RGA_GET_DST_FENCE_ERROR;
+			return ret;
+		}
+		rga_service.dst_fence = retire_fence;
+		sync_fence_install(retire_fence,
+			rga_service.dst_fence_fd);
+		rga_fence_create_num++;
+	}
+
+    if (rga_convert_dma_buf(req)) {
+		pr_info("RGA : DMA buf copy error\n");
+		return -1;
+	}
 
     do
     {
@@ -858,6 +1068,9 @@ static int rga_blit(rga_session *session, struct rga_req *req)
     }
     while(0);
 
+    if (rga_service.dst_fence != NULL)
+		sync_fence_put(rga_service.dst_fence);
+
     return -EFAULT;
 }
 
@@ -888,30 +1101,10 @@ static int rga_blit_sync(rga_session *session, struct rga_req *req)
     atomic_set(&session->done, 0);
 
     ret = rga_blit(session, req);
-    if(ret < 0)
-    {
+    if (ret < 0)
         return ret;
-    }
 
     ret_timeout = wait_event_timeout(session->wait, atomic_read(&session->done), RGA_TIMEOUT_DELAY);
-
-    if (unlikely(ret_timeout< 0))
-    {
-		//pr_err("sync pid %d wait task ret %d\n", session->pid, ret_timeout);
-        mutex_lock(&rga_service.lock);
-        rga_del_running_list();
-        mutex_unlock(&rga_service.lock);
-        ret = ret_timeout;
-	}
-    else if (0 == ret_timeout)
-    {
-		//pr_err("sync pid %d wait %d task done timeout\n", session->pid, atomic_read(&session->task_running));
-        mutex_lock(&rga_service.lock);
-        rga_del_running_list_timeout();
-        rga_try_set_reg();
-        mutex_unlock(&rga_service.lock);
-		ret = -ETIMEDOUT;
-	}
 
     #if RGA_TEST_TIME
     rga_end = ktime_get();
@@ -925,11 +1118,13 @@ static int rga_blit_sync(rga_session *session, struct rga_req *req)
 
 static long rga_ioctl(struct file *file, uint32_t cmd, unsigned long arg)
 {
-    struct rga_req req;
+    struct rga_req req, *req_p;
 	int ret = 0;
     rga_session *session;
 
     mutex_lock(&rga_service.mutex);
+
+    req_p = (struct rga_req *)arg;
 
     session = (rga_session *)file->private_data;
 
@@ -985,6 +1180,13 @@ static long rga_ioctl(struct file *file, uint32_t cmd, unsigned long arg)
 			ret = -EINVAL;
 			break;
 	}
+
+    copy_to_user
+		(&req_p->line_draw_info.end_point.x,
+	     &rga_service.dst_fence_fd, sizeof(short));
+	copy_to_user
+		(&req_p->line_draw_info.start_point.x,
+	     &rga_service.timeout_num, sizeof(short));
 
 	mutex_unlock(&rga_service.mutex);
 
@@ -1095,6 +1297,7 @@ static irqreturn_t rga_irq_thread(int irq, void *dev_id)
 	if (rga_service.enable) {
 		rga_del_running_list();
 		rga_try_set_reg();
+        atomic_set(&rga_service.already_queue, 0);
 	}
 	mutex_unlock(&rga_service.lock);
 
@@ -1137,6 +1340,11 @@ static int __devinit rga_drv_probe(struct platform_device *pdev)
 	atomic_set(&rga_service.src_format_swt, 0);
 	rga_service.last_prc_src_format = 1; /* default is yuv first*/
 	rga_service.enable = false;
+    rga_service.timeline =
+				sw_sync_timeline_create("rga-rockchip");
+	rga_service.timeline_max = 0;
+	rga_service.timeout_num = 0;
+    atomic_set(&rga_service.delay_work_already_queue, 0);
 
 	data = kzalloc(sizeof(struct rga_drvdata), GFP_KERNEL);
 	if(NULL == data)
@@ -1146,6 +1354,10 @@ static int __devinit rga_drv_probe(struct platform_device *pdev)
 	}
 
 	INIT_DELAYED_WORK(&data->power_off_work, rga_power_off_work);
+    INIT_DELAYED_WORK(&rga_service.fence_delayed_work,
+		rga_del_running_list_timeout);
+	rga_service.fence_workqueue =
+		alloc_ordered_workqueue("rga_fence_delaywork", 0);
 	wake_lock_init(&data->wake_lock, WAKE_LOCK_SUSPEND, "rga");
 
 	data->pd_rga = clk_get(NULL, "pd_rga");
@@ -1186,6 +1398,15 @@ static int __devinit rga_drv_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, data);
 	drvdata = data;
+
+#if defined(CONFIG_ION_ROCKCHIP)
+	pr_info("create rockchip ion client for RGA\n");
+	data->ion_client = rockchip_ion_client_create("rga");
+	if (IS_ERR(data->ion_client)) {
+		dev_err(&pdev->dev, "failed to create ion client for rga");
+		return PTR_ERR(data->ion_client);
+	}
+#endif
 
 	ret = misc_register(&rga_dev);
 	if(ret)
