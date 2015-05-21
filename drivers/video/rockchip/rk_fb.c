@@ -898,17 +898,20 @@ static int rk_fb_set_config(struct rk_lcdc_device_driver *dev_drv, struct rk_fb_
 		struct fb_info *info = rk_get_fb(i);
 		struct fb_var_screeninfo *var = &info->var;
 		struct fb_fix_screeninfo *fix = &info->fix;
+		int layer_id = dev_drv->fb_get_layer(dev_drv,info->fix.id);
 		ion_phys_addr_t phy_addr;
 		struct ion_handle *hdl;
 		int ion_fd;
 		size_t len;
 
 		if (!area_par->ion_fd) {
-			info->fbops->fb_release(info, 1);
+			if (dev_drv->layer_par[layer_id]->state)
+				dev_drv->open(dev_drv,layer_id, 0);
 			continue;
 		}
 
-		info->fbops->fb_open(info, 1);
+		if(!dev_drv->layer_par[layer_id]->state)
+			dev_drv->open(dev_drv,layer_id, 1);
 
 		var->xoffset = area_par->x_offset;
 		var->yoffset = area_par->y_offset;
