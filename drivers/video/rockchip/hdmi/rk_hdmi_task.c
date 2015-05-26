@@ -102,8 +102,8 @@ void hdmi_sys_remove(void)
 	kobject_uevent_env(&hdmi->dev->kobj, KOBJ_REMOVE, envp);
 
 	#ifdef CONFIG_SWITCH
-	if(audio_need)
-		switch_set_state(&(hdmi->switch_hdmi), 0);
+	/*if(audio_need)*/
+	switch_set_state(&(hdmi->switch_hdmi), 0);
 	#endif
 	#ifdef CONFIG_RK_HDMI_CTL_CODEC
 #ifdef CONFIG_MACH_RK_FAC
@@ -257,8 +257,8 @@ void hdmi_work(struct work_struct *work)
 					kobject_uevent_env(&hdmi->dev->kobj, KOBJ_ADD, envp);
 					hdmi_dbg(hdmi->dev,"base_audio_support =%d,sink_hdmi = %d\n",hdmi->edid.base_audio_support,hdmi->edid.sink_hdmi );
 					#ifdef CONFIG_SWITCH
-					if(hdmi->edid.base_audio_support == 1 &&  hdmi->edid.sink_hdmi == 1)
-						switch_set_state(&(hdmi->switch_hdmi), 1);
+					/* if(hdmi->edid.base_audio_support == 1 &&  hdmi->edid.sink_hdmi == 1) */
+					switch_set_state(&(hdmi->switch_hdmi), 1);
 					#endif
 					#ifdef CONFIG_RK_HDMI_CTL_CODEC
 					#ifdef CONFIG_MACH_RK_FAC
