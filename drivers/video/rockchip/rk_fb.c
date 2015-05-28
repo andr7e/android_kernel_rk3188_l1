@@ -779,7 +779,7 @@ static int rk_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 					//memcpy(info2->screen_base+par2->y_offset,info->screen_base+par->y_offset,
 					//	var->xres*var->yres*var->bits_per_pixel>>3);
 					#if defined(CONFIG_FB_ROTATE) || !defined(CONFIG_THREE_FB_BUFFER)
-						#ifdef CONFIG_ARCH_RK3026
+						#if defined(CONFIG_ARCH_RK3026) || defined(CONFIG_ARCH_RK3188)
 						//RGA support copying RGB to RGB,but not support YUV to YUV if rotate
 						fb_copy_by_rga(info2,info,par->y_offset);
 						#else
