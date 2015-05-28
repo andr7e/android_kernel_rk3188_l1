@@ -662,6 +662,21 @@ static void rk_fb_update_reg(struct rk_lcdc_device_driver * dev_drv,struct rk_re
 	if(dev_drv->lcdc_reg_update)
 		dev_drv->lcdc_reg_update(dev_drv);
 
+	#if defined(CONFIG_RK_HDMI)
+	#if defined(CONFIG_DUAL_LCDC_DUAL_DISP_IN_KERNEL)
+	if(hdmi_get_hotplug() == HDMI_HPD_ACTIVED) {
+		struct rk_lcdc_device_driver *dev_drv_ext = rk_get_extend_lcdc_drv();
+
+		if (dev_drv_ext) {
+			if(dev_drv_ext->lcdc_reg_update)
+				dev_drv_ext->lcdc_reg_update(dev_drv_ext);
+			wait_event_interruptible_timeout(dev_drv_ext->vsync_info.wait,
+					!ktime_equal(timestamp, dev_drv_ext->vsync_info.timestamp),msecs_to_jiffies(dev_drv_ext->cur_screen->ft+5));
+		}
+	}
+	#endif
+	#endif
+
 	ret = wait_event_interruptible_timeout(dev_drv->vsync_info.wait,
 			!ktime_equal(timestamp, dev_drv->vsync_info.timestamp),msecs_to_jiffies(dev_drv->cur_screen->ft+5));
 
