@@ -104,6 +104,12 @@ struct rk29lcd_info {
 	int (*io_disable)(void);
 };
 
+struct overscan {
+        unsigned char left;
+        unsigned char top;
+        unsigned char right;
+        unsigned char bottom;
+};
 
 /* Screen description */
 typedef struct rk29fb_screen {
@@ -189,6 +195,7 @@ typedef struct rk29fb_screen {
 	int ypos;
 	int xsize; //horizontal and vertical display size on he screen,they can be changed by application
 	int ysize;
+
 	/* Operation function*/
 	int (*init)(void);
 	int (*standby)(u8 enable);

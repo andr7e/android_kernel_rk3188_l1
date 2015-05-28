@@ -164,6 +164,48 @@ static ssize_t set_overlay(struct device *dev,struct device_attribute *attr,
 	return count;
 }
 
+static ssize_t show_scale(struct device *dev,
+                          struct device_attribute *attr, char *buf)
+{
+        struct fb_info *fbi = dev_get_drvdata(dev);
+	struct rk_lcdc_device_driver *dev_drv = (struct rk_lcdc_device_driver * )fbi->par;
+
+        return snprintf(buf, PAGE_SIZE,
+                "xscale=%d yscale=%d\nleft=%d top=%d right=%d bottom=%d\n",
+                (dev_drv->overscan.left + dev_drv->overscan.right) / 2,
+                (dev_drv->overscan.top + dev_drv->overscan.bottom) / 2,
+                dev_drv->overscan.left, dev_drv->overscan.top,
+                dev_drv->overscan.right, dev_drv->overscan.bottom);
+}
+
+static ssize_t set_scale(struct device *dev, struct device_attribute *attr,
+                         const char *buf, size_t count)
+{
+        struct fb_info *fbi = dev_get_drvdata(dev);
+	struct rk_lcdc_device_driver *dev_drv = (struct rk_lcdc_device_driver * )fbi->par;
+        u32 left = 0, top = 0, right = 0, bottom = 0;
+
+        if (!strncmp(buf, "overscan", 8))
+                sscanf(buf, "overscan %d,%d,%d,%d", &left, &top, &right, &bottom);
+        else if (!strncmp(buf, "left", 4))
+                sscanf(buf, "left=%d", &left);
+        else if (!strncmp(buf, "top", 3))
+                sscanf(buf, "top=%d", &top);
+        else if (!strncmp(buf, "right", 5))
+                sscanf(buf, "right=%d", &right);
+        else if (!strncmp(buf, "bottom", 6))
+                sscanf(buf, "bottom=%d", &bottom);
+        else if (!strncmp(buf, "xscale", 6))
+                sscanf(buf, "xscale=%d", &left);
+        else if (!strncmp(buf, "yscale", 6))
+                sscanf(buf, "yscale=%d", &left);
+        else
+                sscanf(buf, "%d", &left);
+
+	rk_fb_disp_scale_all(left, right, top, bottom, dev_drv->id);
+
+        return count;
+}
 
 static ssize_t show_fps(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -337,6 +379,7 @@ static struct device_attribute rkfb_attrs[] = {
 	__ATTR(fps, S_IRUGO | S_IWUSR, show_fps, set_fps),
 	__ATTR(map, S_IRUGO | S_IWUSR, show_fb_win_map, set_fb_win_map),
 	__ATTR(dsp_lut, S_IRUGO | S_IWUSR, show_dsp_lut, set_dsp_lut),
+	__ATTR(scale, S_IRUGO | S_IWUSR, show_scale, set_scale),
 };
 
 int rkfb_create_sysfs(struct fb_info *fbi)

@@ -351,8 +351,8 @@ struct rk_lcdc_device_driver{
 	rk_screen *screen1;		      //two display devices for dual display,such as rk2918,rk2928
 	rk_screen *cur_screen;		     //screen0 is primary screen ,like lcd panel,screen1 is  extend screen,like hdmi
 	u32 pixclock;
-
 	
+	struct overscan overscan;
         char fb0_win_id;
         char fb1_win_id;
         char fb2_win_id;
@@ -429,7 +429,8 @@ extern int rk_fb_dpi_layer_sel(int layer_id);
 extern int rk_fb_dpi_status(void);
 
 extern int rk_fb_switch_screen(rk_screen *screen ,int enable ,int lcdc_id);
-extern int rk_fb_disp_scale(u8 scale_x, u8 scale_y,u8 lcdc_id);
+extern int rk_fb_disp_scale_all(u8 left, u8 right, u8 top, u8 bottom, u8 lcdc_id);
+#define rk_fb_disp_scale(x, y, id) rk_fb_disp_scale_all(x, x, y, y, id)
 extern int rkfb_create_sysfs(struct fb_info *fbi);
 extern char * get_format_string(enum data_format,char *fmt);
 extern int support_uboot_display(void);

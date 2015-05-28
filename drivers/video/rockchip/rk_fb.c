@@ -1936,9 +1936,7 @@ int rk_fb_switch_screen(rk_screen *screen ,int enable ,int lcdc_id)
 
 }
 
-
-
-
+#define rk_fb_disp_scale(x, y, id) rk_fb_disp_scale_all(x, x, y, y, id)
 /******************************************
 function:this function current only called by hdmi for 
 	scale the display
@@ -1947,7 +1945,7 @@ scale_y: scale rate of y resolution
 lcdc_id: the lcdc id the hdmi attached ,0 or 1
 ******************************************/
 
-int rk_fb_disp_scale(u8 scale_x, u8 scale_y,u8 lcdc_id)
+int rk_fb_disp_scale_all(u8 left, u8 right, u8 top, u8 bottom, u8 lcdc_id)
 {
 	struct rk_fb_inf *inf =  platform_get_drvdata(g_fb_pdev);
 	struct fb_info *info = NULL;
@@ -1992,19 +1990,42 @@ int rk_fb_disp_scale(u8 scale_x, u8 scale_y,u8 lcdc_id)
 	screen_x = dev_drv->cur_screen->x_res;
 	screen_y = dev_drv->cur_screen->y_res;
 	
+	if (left)
+		dev_drv->overscan.left = left;
+	if (right)
+		dev_drv->overscan.right = right;
+	if (top)
+		dev_drv->overscan.right = right;
+	if (bottom)
+		dev_drv->overscan.bottom = bottom;
+
+	if (!dev_drv->overscan.left)
+		dev_drv->overscan.left = 100;
+	if (!dev_drv->overscan.right)
+		dev_drv->overscan.right = 100;
+	if (!dev_drv->overscan.top)
+		dev_drv->overscan.top = 100;
+	if (!dev_drv->overscan.bottom)
+		dev_drv->overscan.bottom = 100;
+
 #if defined(CONFIG_ONE_LCDC_DUAL_OUTPUT_INF)||defined(CONFIG_NO_DUAL_DISP)
 	if(dev_drv->cur_screen->screen_id == 1){
-		dev_drv->cur_screen->xpos = (screen_x-screen_x*scale_x/100)>>1;
-		dev_drv->cur_screen->ypos = (screen_y-screen_y*scale_y/100)>>1;
-		dev_drv->cur_screen->xsize = screen_x*scale_x/100;
-		dev_drv->cur_screen->ysize = screen_y*scale_y/100;
+		 x_res * (100 - dev_drv->overscan.left) / 200;
+		dev_drv->cur_screen->xpos =
+			screen_x * (100 - dev_drv->overscan.left) / 200;
+		dev_drv->cur_screen->ypos =
+			screen_y * (100 - dev_drv->overscan.top) / 200;
+		dev_drv->cur_screen->xsize =
+			screen_x * (dev_drv->overscan.left + dev_drv->overscan.right) / 200;
+		dev_drv->cur_screen->ysize =
+			screen_y * (dev_drv->overscan.top + dev_drv->overscan.bottom) / 200;
 	}else
 #endif
 	{
-		xpos = (screen_x-screen_x*scale_x/100)>>1;
-		ypos = (screen_y-screen_y*scale_y/100)>>1;
-		xsize = screen_x*scale_x/100;
-		ysize = screen_y*scale_y/100;
+		xpos = screen_x * (100 - dev_drv->overscan.left) / 200;
+		ypos = screen_y * (100 - dev_drv->overscan.top) / 200;
+		xsize = screen_x * (dev_drv->overscan.left + dev_drv->overscan.right) / 200;
+		ysize = screen_y * (dev_drv->overscan.top + dev_drv->overscan.bottom) / 200;
 		var->nonstd &= 0xff;
 		var->nonstd |= (xpos<<8) + (ypos<<20);
 		var->grayscale &= 0xff;
@@ -2018,8 +2039,6 @@ int rk_fb_disp_scale(u8 scale_x, u8 scale_y,u8 lcdc_id)
 	if(dev_drv->lcdc_reg_update)
 		dev_drv->lcdc_reg_update(dev_drv);
 	return 0;
-	
-	
 }
 
 static int rk_request_fb_buffer(struct fb_info *fbi,int fb_id)
