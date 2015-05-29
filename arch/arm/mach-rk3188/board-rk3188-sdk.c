@@ -56,6 +56,9 @@
 #if defined(CONFIG_MFD_RK610)
 #include <linux/mfd/rk610_core.h>
 #endif
+#if defined(CONFIG_MFD_RK616)
+#include <linux/mfd/rk616.h>
+#endif
 
 #if defined(CONFIG_RK_HDMI)
 	#include "../../../drivers/video/rockchip/hdmi/rk_hdmi.h"
@@ -1471,6 +1474,62 @@ static struct platform_device *devices[] __initdata = {
 #endif
 };
 
+
+#if defined(CONFIG_MFD_RK616)
+#define RK616_RST_PIN 			RK30_PIN3_PB2
+#define RK616_PWREN_PIN			RK30_PIN0_PA3
+#define RK616_SCL_RATE			(100*1000)   //i2c scl rate
+static int rk616_power_on_init(void)
+{
+	int ret;
+
+	if(RK616_PWREN_PIN != INVALID_GPIO)
+	{
+		ret = gpio_request(RK616_PWREN_PIN, "rk616 pwren");
+		if (ret == 0)
+			gpio_direction_output(RK616_PWREN_PIN,GPIO_HIGH);
+	}
+
+	if(RK616_RST_PIN != INVALID_GPIO)
+	{
+		ret = gpio_request(RK616_RST_PIN, "rk616 reset");
+		if (ret == 0)
+		{
+			gpio_direction_output(RK616_RST_PIN, GPIO_HIGH);
+			msleep(2);
+			gpio_direction_output(RK616_RST_PIN, GPIO_LOW);
+			msleep(10);
+			gpio_set_value(RK616_RST_PIN, GPIO_HIGH);
+		}
+	}
+
+	return 0;
+}
+
+
+static int rk616_power_deinit(void)
+{
+	gpio_set_value(RK616_PWREN_PIN,GPIO_LOW);
+	gpio_set_value(RK616_RST_PIN,GPIO_LOW);
+	gpio_free(RK616_PWREN_PIN);
+	gpio_free(RK616_RST_PIN);
+
+	return 0;
+}
+
+static struct rk616_platform_data rk616_pdata = {
+	.power_init = rk616_power_on_init,
+	.power_deinit = rk616_power_deinit,
+	.scl_rate   = RK616_SCL_RATE,
+	.lcd0_func = INPUT,             //port lcd0 as input
+	.lcd1_func = INPUT,             //port lcd1 as input
+	.lvds_ch_nr = 1,		//the number of used lvds channel
+	.hdmi_irq = RK30_PIN2_PD6,
+	.spk_ctl_gpio = RK30_PIN2_PD7,
+	.hp_ctl_gpio = RK30_PIN2_PD7,
+};
+#endif
+
 static int rk_platform_add_display_devices(void)
 {
 	struct platform_device *fb = NULL;  //fb
@@ -1495,7 +1554,6 @@ static int rk_platform_add_display_devices(void)
 	__rk_platform_add_display_devices(fb,lcdc0,lcdc1,bl);
 
 	return 0;
-	
 }
 
 // i2c
@@ -1588,6 +1646,15 @@ static struct i2c_board_info __initdata i2c0_info[] = {
 		},
 #endif
 #endif
+#if defined (CONFIG_MFD_RK616)
+{
+	.type	       = "rk616",
+	.addr	       = 0x50,
+	.flags	       = 0,
+	.platform_data = &rk616_pdata,
+	},
+#endif
+
 
 #if defined (CONFIG_CW2015_BATTERY)
         {
@@ -1822,6 +1889,7 @@ static struct pmu_info  act8846_dcdc_info[] = {
 	},
 	
 };
+
 static  struct pmu_info  act8846_ldo_info[] = {
 	{
 		.name          = "act_ldo1",   //vdd11
@@ -2045,10 +2113,9 @@ void __sramfunc board_pmu_resume(void)
        if(pmic_is_rk808())
        board_pmu_rk808_resume();
        #endif
-  
 }
 
- int __sramdata gpio3d6_iomux,gpio3d6_do,gpio3d6_dir,gpio3d6_en;
+int __sramdata gpio3d6_iomux,gpio3d6_do,gpio3d6_dir,gpio3d6_en;
 
 #define grf_readl(offset)	readl_relaxed(RK30_GRF_BASE + offset)
 #define grf_writel(v, offset)	do { writel_relaxed(v, RK30_GRF_BASE + offset); dsb(); } while (0)
@@ -2078,9 +2145,7 @@ void __sramfunc rk30_pwm_logic_resume_voltage(void)
 	grf_writel((1<<30)|gpio3d6_dir, GRF_GPIO3H_DIR);
 	grf_writel((1<<30)|gpio3d6_do, GRF_GPIO3H_DO);
 	sram_udelay(10000);
-
 #endif
-
 }
 extern void pwm_suspend_voltage(void);
 extern void pwm_resume_voltage(void);
@@ -2127,7 +2192,10 @@ static struct i2c_board_info __initdata i2c2_info[] = {
 	},
 #endif
 
+
+
 };
+
 #endif
 
 #ifdef CONFIG_I2C3_RK30
