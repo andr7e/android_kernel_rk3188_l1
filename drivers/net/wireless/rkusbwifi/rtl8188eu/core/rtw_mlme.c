@@ -1201,46 +1201,35 @@ _func_exit_;
 void rtw_surveydone_event_callback(_adapter	*adapter, u8 *pbuf)
 {
 	_irqL  irqL;
-	u8 timer_cancelled = _FALSE;
+	u8 timer_cancelled;
 	struct	mlme_priv	*pmlmepriv = &(adapter->mlmepriv);
-	
-#ifdef CONFIG_MLME_EXT	
 
+#ifdef CONFIG_MLME_EXT
 	mlmeext_surveydone_event_callback(adapter);
-
 #endif
 
-_func_enter_;			
+_func_enter_;
 
 	_enter_critical_bh(&pmlmepriv->lock, &irqL);
-	if(pmlmepriv->wps_probe_req_ie)
-	{
+	if (pmlmepriv->wps_probe_req_ie) {
 		u32 free_len = pmlmepriv->wps_probe_req_ie_len;
 		pmlmepriv->wps_probe_req_ie_len = 0;
 		rtw_mfree(pmlmepriv->wps_probe_req_ie, free_len);
-		pmlmepriv->wps_probe_req_ie = NULL;			
+		pmlmepriv->wps_probe_req_ie = NULL;
 	}
-	
-	RT_TRACE(_module_rtl871x_mlme_c_,_drv_info_,("rtw_surveydone_event_callback: fw_state:%x\n\n", get_fwstate(pmlmepriv)));
-	
-	if (check_fwstate(pmlmepriv,_FW_UNDER_SURVEY))
-	{
-		//u8 timer_cancelled;
 
-		timer_cancelled = _TRUE;
-		//_cancel_timer(&pmlmepriv->scan_to_timer, &timer_cancelled);
-		
-		_clr_fwstate_(pmlmepriv, _FW_UNDER_SURVEY);
+	RT_TRACE(_module_rtl871x_mlme_c_,_drv_info_,("rtw_surveydone_event_callback: fw_state:%x\n\n", get_fwstate(pmlmepriv)));
+
+	if (check_fwstate(pmlmepriv,_FW_UNDER_SURVEY) == _FALSE) {
+		DBG_871X(FUNC_ADPT_FMT" fw_state:0x%x\n", FUNC_ADPT_ARG(adapter), get_fwstate(pmlmepriv));
+		//rtw_warn_on(1);
 	}
-	else {
-	
-		RT_TRACE(_module_rtl871x_mlme_c_,_drv_err_,("nic status =%x, survey done event comes too late!\n", get_fwstate(pmlmepriv)));	
-	}
+
+	_clr_fwstate_(pmlmepriv, _FW_UNDER_SURVEY);
+
 	_exit_critical_bh(&pmlmepriv->lock, &irqL);
 
-	if(timer_cancelled)
-		_cancel_timer(&pmlmepriv->scan_to_timer, &timer_cancelled);
-
+	_cancel_timer(&pmlmepriv->scan_to_timer, &timer_cancelled);
 
 	_enter_critical_bh(&pmlmepriv->lock, &irqL);
 
@@ -1258,8 +1247,8 @@ _func_enter_;
 				
 		   		if(rtw_select_and_join_from_scanned_queue(pmlmepriv)==_SUCCESS)
 		   		{
-		       			_set_timer(&pmlmepriv->assoc_timer, MAX_JOIN_TIMEOUT );
-                  		}
+					_set_timer(&pmlmepriv->assoc_timer, MAX_JOIN_TIMEOUT );
+				}
 		   		else	
 		  		{
 					WLAN_BSSID_EX    *pdev_network = &(adapter->registrypriv.dev_network); 			
@@ -1635,6 +1624,8 @@ void rtw_indicate_disconnect( _adapter *padapter )
 	WLAN_BSSID_EX	*cur_network = &(pmlmeinfo->network);
 	struct sta_info *psta;
 	struct sta_priv *pstapriv = &padapter->stapriv;
+	u8 *wps_ie=NULL;
+	uint wpsie_len=0;
 
 _func_enter_;	
 	
@@ -1642,7 +1633,22 @@ _func_enter_;
 
 	_clr_fwstate_(pmlmepriv, _FW_UNDER_LINKING|WIFI_UNDER_WPS);
 
-        //DBG_871X("clear wps when %s\n", __func__);
+	// force to clear cur_network_scanned's SELECTED REGISTRAR
+	if (pmlmepriv->cur_network_scanned) {
+		WLAN_BSSID_EX	*current_joined_bss = &(pmlmepriv->cur_network_scanned->network);
+		if (current_joined_bss) {
+			wps_ie=rtw_get_wps_ie(current_joined_bss->IEs +_FIXED_IE_LENGTH_,
+				current_joined_bss->IELength-_FIXED_IE_LENGTH_, NULL, &wpsie_len);
+			if (wps_ie && wpsie_len>0) {
+				u8 *attr = NULL;
+				u32 attr_len;
+				attr=rtw_get_wps_attr(wps_ie, wpsie_len, WPS_ATTR_SELECTED_REGISTRAR,
+						       NULL, &attr_len);
+				if (attr)
+					*(attr + 4) = 0;
+			}
+		}
+	}
 
 	if(rtw_to_roam(padapter) > 0)
 		_clr_fwstate_(pmlmepriv, _FW_LINKED);
@@ -1740,7 +1746,7 @@ void rtw_scan_abort(_adapter *adapter)
 		#ifdef CONFIG_PLATFORM_MSTAR
 		//_clr_fwstate_(pmlmepriv, _FW_UNDER_SURVEY);
 		set_survey_timer(pmlmeext, 0);
-		_set_timer(&pmlmepriv->scan_to_timer, 50);
+		mlme_set_scan_to_timer(pmlmepriv, 50);
 		#endif
 		rtw_indicate_scan_done(adapter, _TRUE);
 	}
@@ -1808,6 +1814,7 @@ static struct sta_info *rtw_joinbss_update_stainfo(_adapter *padapter, struct wl
 			_rtw_memset((u8 *)&psta->dot11tkiptxmickey, 0, sizeof (union Keytype));
 						
 			_rtw_memset((u8 *)&psta->dot11txpn, 0, sizeof (union pn48));
+			psta->dot11txpn.val = psta->dot11txpn.val + 1;
 #ifdef CONFIG_IEEE80211W
 			_rtw_memset((u8 *)&psta->dot11wtxpn, 0, sizeof (union pn48));
 #endif //CONFIG_IEEE80211W
@@ -2378,7 +2385,7 @@ _func_enter_;
 	
 #ifdef CONFIG_RTL8711
 	//submit SetStaKey_cmd to tell fw, fw will allocate an CAM entry for this sta	
-	rtw_setstakey_cmd(adapter, (unsigned char*)psta, _FALSE, _TRUE);
+	rtw_setstakey_cmd(adapter, psta, _FALSE, _TRUE);
 #endif
 		
 exit:
@@ -3476,22 +3483,67 @@ static int SecIsInPMKIDList(_adapter *Adapter, u8 *bssid)
 // 13th element in the array is the IE length  
 //
 
-static int rtw_append_pmkid(_adapter *Adapter,int iEntry, u8 *ie, uint ie_len)
+static int rtw_append_pmkid(_adapter *adapter,int iEntry, u8 *ie, uint ie_len)
 {
-	struct security_priv *psecuritypriv=&Adapter->securitypriv;
+	struct security_priv *sec=&adapter->securitypriv;
 
-	if(ie[13]<=20){	
-		// The RSN IE didn't include the PMK ID, append the PMK information 
-			ie[ie_len]=1;
-			ie_len++;
-			ie[ie_len]=0;	//PMKID count = 0x0100
-			ie_len++;
-			_rtw_memcpy(	&ie[ie_len], &psecuritypriv->PMKIDList[iEntry].PMKID, 16);
-		
-			ie_len+=16;
-			ie[13]+=18;//PMKID length = 2+16
+	if (ie[13] > 20) {
+		int i;
+		u16 pmkid_cnt = RTW_GET_LE16(ie+14+20);
+		if (pmkid_cnt == 1 && _rtw_memcmp(ie+14+20+2, &sec->PMKIDList[iEntry].PMKID, 16)) {
+			DBG_871X(FUNC_ADPT_FMT" has carried the same PMKID:"KEY_FMT"\n"
+				, FUNC_ADPT_ARG(adapter), KEY_ARG(&sec->PMKIDList[iEntry].PMKID));
+			goto exit;
+		}
 
+		DBG_871X(FUNC_ADPT_FMT" remove original PMKID, count:%u\n"
+			, FUNC_ADPT_ARG(adapter), pmkid_cnt);
+
+		for (i=0;i<pmkid_cnt;i++)
+			DBG_871X("    "KEY_FMT"\n", KEY_ARG(ie+14+20+2+i*16));
+
+		ie_len -= 2+pmkid_cnt*16;
+		ie[13] = 20;
 	}
+
+	if (ie[13] <= 20) {	
+		/* The RSN IE didn't include the PMK ID, append the PMK information */
+
+		DBG_871X(FUNC_ADPT_FMT" append PMKID:"KEY_FMT"\n"
+				, FUNC_ADPT_ARG(adapter), KEY_ARG(&sec->PMKIDList[iEntry].PMKID));
+
+		RTW_PUT_LE16(&ie[ie_len], 1);
+		ie_len += 2;
+
+		_rtw_memcpy(&ie[ie_len], &sec->PMKIDList[iEntry].PMKID, 16);
+		ie_len += 16;
+
+		ie[13] += 18;//PMKID length = 2+16
+	}
+
+exit:
+	return (ie_len);
+}
+
+static int rtw_remove_pmkid(_adapter *adapter, u8 *ie, uint ie_len)
+{
+	struct security_priv *sec=&adapter->securitypriv;
+	int i;
+	u16 pmkid_cnt = RTW_GET_LE16(ie+14+20);
+
+	if (ie[13] <= 20)
+		goto exit;
+
+	DBG_871X(FUNC_ADPT_FMT" remove original PMKID, count:%u\n"
+		, FUNC_ADPT_ARG(adapter), pmkid_cnt);
+
+	for (i=0;i<pmkid_cnt;i++)
+		DBG_871X("    "KEY_FMT"\n", KEY_ARG(ie+14+20+2+i*16));
+
+	ie_len -= 2+pmkid_cnt*16;
+	ie[13] = 20;
+
+exit:
 	return (ie_len);
 }
 
@@ -3551,14 +3603,13 @@ _func_enter_;
 	iEntry = SecIsInPMKIDList(adapter, pmlmepriv->assoc_bssid);
 	if(iEntry<0)
 	{
-		return ielength;
+		if(authmode == _WPA2_IE_ID_)
+			ielength = rtw_remove_pmkid(adapter, out_ie, ielength);
 	}
 	else
 	{
 		if(authmode == _WPA2_IE_ID_)
-		{
 			ielength=rtw_append_pmkid(adapter, iEntry, out_ie, ielength);
-		}
 	}
 
 _func_exit_;
@@ -3810,7 +3861,7 @@ void rtw_build_wmm_ie_ht(_adapter *padapter, u8 *out_ie, uint *pout_len)
 unsigned int rtw_restructure_ht_ie(_adapter *padapter, u8 *in_ie, u8 *out_ie, uint in_len, uint *pout_len, u8 channel)
 {
 	u32 ielen, out_len;
-	HT_CAP_AMPDU_FACTOR max_rx_ampdu_factor;
+	u32 max_rx_ampdu_factor;
 	unsigned char *p, *pframe;
 	struct rtw_ieee80211_ht_cap ht_capie;
 	u8	cbw40_enable = 0, stbc_rx_enable = 0, rf_type = 0, operation_bw=0;

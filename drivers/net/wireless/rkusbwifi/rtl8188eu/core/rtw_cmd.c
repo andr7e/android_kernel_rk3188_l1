@@ -845,11 +845,16 @@ _func_enter_;
 
 #ifdef CONFIG_STA_MODE_SCAN_UNDER_AP_MODE
 		if((padapter->pbuddy_adapter->mlmeextpriv.mlmext_info.state&0x03) == WIFI_FW_AP_STATE)
-			_set_timer(&pmlmepriv->scan_to_timer, SURVEY_TO * 
-						( padapter->mlmeextpriv.max_chan_nums + ( padapter->mlmeextpriv.max_chan_nums / RTW_SCAN_NUM_OF_CH ) * RTW_STAY_AP_CH_MILLISECOND ) + 1000 );
+		{
+			if(IsSupported5G(padapter->registrypriv.wireless_mode) 
+				&& IsSupported24G(padapter->registrypriv.wireless_mode)) //dual band
+				mlme_set_scan_to_timer(pmlmepriv, CONC_SCANNING_TIMEOUT_DUAL_BAND);
+			else //single band
+				mlme_set_scan_to_timer(pmlmepriv, CONC_SCANNING_TIMEOUT_SINGLE_BAND);
+		}
 		else
 #endif //CONFIG_STA_MODE_SCAN_UNDER_AP_MODE
-			_set_timer(&pmlmepriv->scan_to_timer, SCANNING_TIMEOUT);
+			mlme_set_scan_to_timer(pmlmepriv, SCANNING_TIMEOUT);
 
 		rtw_led_control(padapter, LED_CTL_SITE_SURVEY);
 	} else {
@@ -1570,7 +1575,7 @@ _func_exit_;
 	return res;
 }
 
-u8 rtw_setstakey_cmd(_adapter *padapter, u8 *psta, u8 unicast_key, bool enqueue)
+u8 rtw_setstakey_cmd(_adapter *padapter, struct sta_info *sta, u8 unicast_key, bool enqueue)
 {
 	struct cmd_obj*			ph2c;
 	struct set_stakey_parm	*psetstakey_para;
@@ -1579,7 +1584,6 @@ u8 rtw_setstakey_cmd(_adapter *padapter, u8 *psta, u8 unicast_key, bool enqueue)
 	
 	struct mlme_priv			*pmlmepriv = &padapter->mlmepriv;
 	struct security_priv 		*psecuritypriv = &padapter->securitypriv;
-	struct sta_info* 			sta = (struct sta_info* )psta;
 	u8	res=_SUCCESS;
 
 _func_enter_;
@@ -1651,7 +1655,7 @@ _func_exit_;
 	return res;
 }
 
-u8 rtw_clearstakey_cmd(_adapter *padapter, u8 *psta, u8 entry, u8 enqueue)
+u8 rtw_clearstakey_cmd(_adapter *padapter, struct sta_info *sta, u8 enqueue)
 {
 	struct cmd_obj*			ph2c;
 	struct set_stakey_parm	*psetstakey_para;
@@ -1659,14 +1663,18 @@ u8 rtw_clearstakey_cmd(_adapter *padapter, u8 *psta, u8 entry, u8 enqueue)
 	struct set_stakey_rsp		*psetstakey_rsp = NULL;	
 	struct mlme_priv			*pmlmepriv = &padapter->mlmepriv;
 	struct security_priv 		*psecuritypriv = &padapter->securitypriv;
-	struct sta_info* 			sta = (struct sta_info* )psta;
+	s16 cam_id = 0;
 	u8	res=_SUCCESS;
 
 _func_enter_;
 
 	if(!enqueue)
 	{
-		clear_cam_entry(padapter, entry);
+		while((cam_id = rtw_camid_search(padapter, sta->hwaddr, -1)) >= 0) {
+			DBG_871X_LEVEL(_drv_always_, "clear key for addr:"MAC_FMT", camid:%d\n", MAC_ARG(sta->hwaddr), cam_id);
+			clear_cam_entry(padapter, cam_id);
+			rtw_camid_free(padapter, cam_id);
+		}
 	}
 	else
 	{
@@ -1698,8 +1706,6 @@ _func_enter_;
 		_rtw_memcpy(psetstakey_para->addr, sta->hwaddr, ETH_ALEN);
 
 		psetstakey_para->algorithm = _NO_PRIVACY_;
-
-		psetstakey_para->id = entry;
 	
 		res = rtw_enqueue_cmd(pcmdpriv, ph2c);	
 		
@@ -3378,10 +3384,10 @@ _func_enter_;
 	{
 		//TODO: cancel timer and do timeout handler directly...
 		//need to make timeout handlerOS independent
-		_set_timer(&pmlmepriv->scan_to_timer, 1);
+		mlme_set_scan_to_timer(pmlmepriv, 1);
 	}
 	else if (pcmd->res != H2C_SUCCESS) {
-		_set_timer(&pmlmepriv->scan_to_timer, 1);
+		mlme_set_scan_to_timer(pmlmepriv, 1);
 		RT_TRACE(_module_rtl871x_cmd_c_,_drv_err_,("\n ********Error: MgntActrtw_set_802_11_bssid_LIST_SCAN Fail ************\n\n."));
 	} 
 

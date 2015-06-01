@@ -940,7 +940,8 @@ void rtl8188eu_recv_tasklet(void *priv)
 	_pkt			*pskb;
 	_adapter		*padapter = (_adapter*)priv;
 	struct recv_priv	*precvpriv = &padapter->recvpriv;
-	
+	struct recv_buf	*precvbuf = NULL;
+
 	while (NULL != (pskb = skb_dequeue(&precvpriv->rx_skb_queue)))
 	{
 		if ((padapter->bDriverStopped == _TRUE)||(padapter->bSurpriseRemoved== _TRUE))
@@ -964,6 +965,14 @@ void rtl8188eu_recv_tasklet(void *priv)
 		rtw_skb_free(pskb);
 #endif
 				
+	}
+
+	while (NULL != (precvbuf = rtw_dequeue_recvbuf(&precvpriv->recv_buf_pending_queue)))
+	{
+		DBG_871X("dequeue_recvbuf %p\n", precvbuf);
+		precvbuf->pskb = NULL;
+		precvbuf->reuse = _FALSE;
+		rtw_read_port(padapter, precvpriv->ff_hwaddr, 0, (unsigned char *)precvbuf);
 	}
 	
 }
@@ -1129,9 +1138,11 @@ _func_enter_;
 		if(precvbuf->pskb == NULL)		
 		{
 			RT_TRACE(_module_hci_ops_os_c_,_drv_err_,("init_recvbuf(): alloc_skb fail!\n"));
-			DBG_8192C("#### usb_read_port() alloc_skb fail!#####\n");
+			DBG_8192C("#### usb_read_port() alloc_skb fail!  precvbuf=%p #####\n", precvbuf);
+			//enqueue precvbuf and wait for free skb
+			rtw_enqueue_recvbuf(precvbuf, &precvpriv->recv_buf_pending_queue);
 			return _FAIL;
-		}	
+		}
 
 		tmpaddr = (SIZE_PTR)precvbuf->pskb->data;
         	alignment = tmpaddr & (RECVBUFF_ALIGN_SZ-1);
@@ -1192,14 +1203,19 @@ void rtl8188eu_xmit_tasklet(void *priv)
 	_adapter *padapter = (_adapter*)priv;
 	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
 
-	if(check_fwstate(&padapter->mlmepriv, _FW_UNDER_SURVEY) == _TRUE)
-		return;
-
 	while(1)
 	{
 		if (RTW_CANNOT_TX(padapter))
 		{
 			DBG_8192C("xmit_tasklet => bDriverStopped or bSurpriseRemoved or bWritePortCancel\n");
+			break;
+		}
+
+		if(check_fwstate(&padapter->mlmepriv, _FW_UNDER_SURVEY) == _TRUE
+			#ifdef CONFIG_CONCURRENT_MODE
+			|| check_buddy_fwstate(padapter, _FW_UNDER_SURVEY) == _TRUE
+			#endif
+		) {
 			break;
 		}
 

@@ -106,7 +106,7 @@ void rtl8188eu_interface_configure(_adapter *padapter)
 
 #ifdef CONFIG_USB_TX_AGGREGATION
 	pHalData->UsbTxAggMode		= 1;
-	pHalData->UsbTxAggDescNum	= 0x6;	// only 4 bits
+	pHalData->UsbTxAggDescNum	= 0x1;	// only 4 bits
 #endif
 
 #ifdef CONFIG_USB_RX_AGGREGATION
@@ -357,9 +357,9 @@ _InitQueueReservedPage(
 	HAL_DATA_TYPE		*pHalData = GET_HAL_DATA(Adapter);
 	struct registry_priv	*pregistrypriv = &Adapter->registrypriv;
 	u32			outEPNum	= (u32)pHalData->OutEpNumber;
-	u32			numHQ		= NORMAL_PAGE_NUM_HPQ_88E;
-	u32			numLQ		= NORMAL_PAGE_NUM_LPQ_88E;
-	u32			numNQ		= NORMAL_PAGE_NUM_NPQ_88E;
+	u32			numHQ		= 0;
+	u32			numLQ		= 0;
+	u32			numNQ		= 0;
 	u32			numPubQ	= 0x00;
 	u32			value32;
 	u8			value8;
@@ -367,20 +367,27 @@ _InitQueueReservedPage(
 
 	if(bWiFiConfig || pregistrypriv->qos_opt_enable)
 	{
-		if (pHalData->OutEpQueueSel & TX_SELE_HQ)
-		{
-			numHQ =  WMM_NORMAL_PAGE_NUM_HPQ_88E;
-		}
+		if (pHalData->OutEpQueueSel & TX_SELE_HQ)		
+			numHQ =  WMM_NORMAL_PAGE_NUM_HPQ_88E;		
 
-		if (pHalData->OutEpQueueSel & TX_SELE_LQ)
-		{
-			numLQ = WMM_NORMAL_PAGE_NUM_LPQ_88E;
-		}
+		if (pHalData->OutEpQueueSel & TX_SELE_LQ)		
+			numLQ = WMM_NORMAL_PAGE_NUM_LPQ_88E;		
 
 		// NOTE: This step shall be proceed before writting REG_RQPN.
-		if (pHalData->OutEpQueueSel & TX_SELE_NQ) {
-			numNQ = WMM_NORMAL_PAGE_NUM_NPQ_88E;
-		}
+		if (pHalData->OutEpQueueSel & TX_SELE_NQ) 
+			numNQ = WMM_NORMAL_PAGE_NUM_NPQ_88E;		
+	}
+	else
+	{		
+		if(pHalData->OutEpQueueSel & TX_SELE_HQ)		
+			numHQ = NORMAL_PAGE_NUM_HPQ_88E;	
+		
+		if(pHalData->OutEpQueueSel & TX_SELE_LQ)
+			numLQ = NORMAL_PAGE_NUM_LPQ_88E;
+				
+		// NOTE: This step shall be proceed before writting REG_RQPN.		
+		if(pHalData->OutEpQueueSel & TX_SELE_NQ)
+			numNQ = NORMAL_PAGE_NUM_NPQ_88E;				
 	}
 
 	value8 = (u8)_NPQ(numNQ);
@@ -2599,6 +2606,7 @@ Hal_ReadMACAddrFromFile_8188EU(
 }
 #endif //CONFIG_EFUSE_CONFIG_FILE
 
+
 static VOID
 readAdapterInfo_8188EU(
 	IN	PADAPTER	padapter
@@ -3236,16 +3244,42 @@ static void hw_var_set_mlme_disconnect(PADAPTER Adapter, u8 variable, u8* val)
 static void hw_var_set_mlme_sitesurvey(PADAPTER Adapter, u8 variable, u8* val)
 {	
 #ifdef CONFIG_CONCURRENT_MODE	
-
+	struct mlme_priv *pmlmepriv=&(Adapter->mlmepriv);
 	struct mlme_ext_priv *pmlmeext = &Adapter->mlmeextpriv;
 	struct mlme_ext_info *pmlmeinfo = &(pmlmeext->mlmext_info);
+	u32	value_rcr, rcr_clear_bit, value_rxfltmap2;
 
+#ifdef CONFIG_FIND_BEST_CHANNEL
+	rcr_clear_bit = (RCR_CBSSID_BCN | RCR_CBSSID_DATA);
+	// Recieve all data frames
+	 value_rxfltmap2 = 0xFFFF;
+#else /* CONFIG_FIND_BEST_CHANNEL */
+	rcr_clear_bit = RCR_CBSSID_BCN;
+	//config RCR to receive different BSSID & not to receive data frame
+	value_rxfltmap2 = 0;
+#endif /* CONFIG_FIND_BEST_CHANNEL */
+
+	if( (check_fwstate(pmlmepriv, WIFI_AP_STATE) == _TRUE)
+		#ifdef CONFIG_CONCURRENT_MODE
+		|| (check_buddy_fwstate(Adapter, WIFI_AP_STATE) == _TRUE)
+		#endif
+	){
+		rcr_clear_bit = RCR_CBSSID_BCN; 
+	}
+#ifdef CONFIG_TDLS
+	// TDLS will clear RCR_CBSSID_DATA bit for connection.
+	else if (Adapter->tdlsinfo.link_established == _TRUE)
+	{
+		rcr_clear_bit = RCR_CBSSID_BCN;
+	}
+#endif // CONFIG_TDLS
+
+	value_rcr = rtw_read32(Adapter, REG_RCR);
 	if(*((u8 *)val))//under sitesurvey
 	{
-		//config RCR to receive different BSSID & not to receive data frame
-		u32 v = rtw_read32(Adapter, REG_RCR);
-		v &= ~(RCR_CBSSID_BCN);
-		rtw_write32(Adapter, REG_RCR, v);
+		value_rcr &= ~(rcr_clear_bit);
+		rtw_write32(Adapter, REG_RCR, value_rcr);
+		rtw_write16(Adapter, REG_RXFLTMAP2, value_rxfltmap2);
 
 		//disable update TSF
 		if((pmlmeinfo->state&0x03) == WIFI_FW_STATION_STATE)
@@ -3257,11 +3291,11 @@ static void hw_var_set_mlme_sitesurvey(PADAPTER Adapter, u8 variable, u8* val)
 			else
 			{
 				rtw_write8(Adapter, REG_BCN_CTRL, rtw_read8(Adapter, REG_BCN_CTRL)|BIT(4));
-			}				
+			}
 		}
-				
+
 		if(check_buddy_mlmeinfo_state(Adapter, WIFI_FW_AP_STATE) &&
-			check_buddy_fwstate(Adapter, _FW_LINKED))		
+			check_buddy_fwstate(Adapter, _FW_LINKED))
 		{
 			StopTxBeacon(Adapter);
 		}
@@ -3270,7 +3304,9 @@ static void hw_var_set_mlme_sitesurvey(PADAPTER Adapter, u8 variable, u8* val)
 	{
 		//enable to rx data frame
 		//write32(Adapter, REG_RCR, read32(padapter, REG_RCR)|RCR_ADF);
-		rtw_write16(Adapter, REG_RXFLTMAP2,0xFFFF);
+		if(check_fwstate(pmlmepriv, (_FW_LINKED|WIFI_AP_STATE))
+			|| check_buddy_fwstate(Adapter, (_FW_LINKED|WIFI_AP_STATE)))
+			rtw_write16(Adapter, REG_RXFLTMAP2,0xFFFF);
 
 		//enable update TSF
 		if(Adapter->iface_type == IFACE_PORT1)
@@ -3278,15 +3314,16 @@ static void hw_var_set_mlme_sitesurvey(PADAPTER Adapter, u8 variable, u8* val)
 		else
 			rtw_write8(Adapter, REG_BCN_CTRL, rtw_read8(Adapter, REG_BCN_CTRL)&(~BIT(4)));
 
-		rtw_write32(Adapter, REG_RCR, rtw_read32(Adapter, REG_RCR)|RCR_CBSSID_BCN);
-					
+		value_rcr |= rcr_clear_bit;
+		rtw_write32(Adapter, REG_RCR, value_rcr);
+
 		if(check_buddy_mlmeinfo_state(Adapter, WIFI_FW_AP_STATE) &&
 			check_buddy_fwstate(Adapter, _FW_LINKED))
 		{
-			ResumeTxBeacon(Adapter);			
+			ResumeTxBeacon(Adapter);
 		}
 	}
-#endif			
+#endif
 }
 
 static void hw_var_set_mlme_join(PADAPTER Adapter, u8 variable, u8* val)
@@ -3409,41 +3446,6 @@ _func_enter_;
 		case HW_VAR_BSSID:
 			hw_var_set_bssid(Adapter, variable, val);
 			break;
-		case HW_VAR_BASIC_RATE:
-			{
-				u16			BrateCfg = 0;
-				u8			RateIndex = 0;
-
-				// 2007.01.16, by Emily
-				// Select RRSR (in Legacy-OFDM and CCK)
-				// For 8190, we select only 24M, 12M, 6M, 11M, 5.5M, 2M, and 1M from the Basic rate.
-				// We do not use other rates.
-				HalSetBrateCfg( Adapter, val, &BrateCfg );
-				DBG_8192C("HW_VAR_BASIC_RATE: BrateCfg(%#x)\n", BrateCfg);
-
-				//2011.03.30 add by Luke Lee
-				//CCK 2M ACK should be disabled for some BCM and Atheros AP IOT
-				//because CCK 2M has poor TXEVM
-				//CCK 5.5M & 11M ACK should be enabled for better performance
-
-				pHalData->BasicRateSet = BrateCfg = (BrateCfg |0xd) & 0x15d;
-
-				BrateCfg |= 0x01; // default enable 1M ACK rate
-				// Set RRSR rate table.
-				rtw_write8(Adapter, REG_RRSR, BrateCfg&0xff);
-				rtw_write8(Adapter, REG_RRSR+1, (BrateCfg>>8)&0xff);
-				rtw_write8(Adapter, REG_RRSR+2, rtw_read8(Adapter, REG_RRSR+2)&0xf0);
-
-				// Set RTS initial rate
-				while(BrateCfg > 0x1)
-				{
-					BrateCfg = (BrateCfg>> 1);
-					RateIndex++;
-				}
-				// Ziv - Check
-				rtw_write8(Adapter, REG_INIRTS_RATE_SEL, RateIndex);
-			}
-			break;
 		case HW_VAR_TXPAUSE:
 			rtw_write8(Adapter, REG_TXPAUSE, *((u8 *)val));	
 			break;
@@ -3526,55 +3528,76 @@ _func_enter_;
 #ifdef CONFIG_CONCURRENT_MODE
 			hw_var_set_mlme_sitesurvey(Adapter, variable,  val);
 #else
-			if(*((u8 *)val))//under sitesurvey
 			{
+				u32 value_rcr, rcr_clear_bit, value_rxfltmap2;
+#ifdef CONFIG_FIND_BEST_CHANNEL
+	
+				rcr_clear_bit = (RCR_CBSSID_BCN | RCR_CBSSID_DATA);
+	
+				// Recieve all data frames
+				value_rxfltmap2 = 0xFFFF;
+		
+#else /* CONFIG_FIND_BEST_CHANNEL */
+		
+				rcr_clear_bit = RCR_CBSSID_BCN;
+	
 				//config RCR to receive different BSSID & not to receive data frame
-				u32 v = rtw_read32(Adapter, REG_RCR);
-				v &= ~(RCR_CBSSID_BCN);
-				rtw_write32(Adapter, REG_RCR, v);
-				//reject all data frame
-				rtw_write16(Adapter, REG_RXFLTMAP2,0x00);
-
-				//disable update TSF
-				rtw_write8(Adapter, REG_BCN_CTRL, rtw_read8(Adapter, REG_BCN_CTRL)|BIT(4));
-			}
-			else//sitesurvey done
-			{
-				struct mlme_ext_priv	*pmlmeext = &Adapter->mlmeextpriv;
-				struct mlme_ext_info	*pmlmeinfo = &(pmlmeext->mlmext_info);
-
-				if ((is_client_associated_to_ap(Adapter) == _TRUE) ||
-					((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) )
-				{
-					//enable to rx data frame
-					//rtw_write32(Adapter, REG_RCR, rtw_read32(padapter, REG_RCR)|RCR_ADF);
-					rtw_write16(Adapter, REG_RXFLTMAP2,0xFFFF);
-
-					//enable update TSF
-					rtw_write8(Adapter, REG_BCN_CTRL, rtw_read8(Adapter, REG_BCN_CTRL)&(~BIT(4)));
+				value_rxfltmap2 = 0;
+	
+#endif /* CONFIG_FIND_BEST_CHANNEL */
+	
+				if (check_fwstate(&Adapter->mlmepriv, WIFI_AP_STATE) == _TRUE) {
+					rcr_clear_bit = RCR_CBSSID_BCN;
 				}
-				else if((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE)
-				{
-					//rtw_write32(Adapter, REG_RCR, rtw_read32(Adapter, REG_RCR)|RCR_ADF);
-					rtw_write16(Adapter, REG_RXFLTMAP2,0xFFFF);
-
-					//enable update TSF
-					rtw_write8(Adapter, REG_BCN_CTRL, rtw_read8(Adapter, REG_BCN_CTRL)&(~BIT(4)));
+	#ifdef CONFIG_TDLS
+				// TDLS will clear RCR_CBSSID_DATA bit for connection.
+				else if (Adapter->tdlsinfo.link_established == _TRUE) {
+					rcr_clear_bit = RCR_CBSSID_BCN;
 				}
-
-				if((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE)
-					rtw_write32(Adapter, REG_RCR, rtw_read32(Adapter, REG_RCR)|RCR_CBSSID_BCN);
-				else
+	#endif // CONFIG_TDLS
+	
+				value_rcr = rtw_read32(Adapter, REG_RCR);
+				if(*((u8 *)val))//under sitesurvey
 				{
-					if(Adapter->in_cta_test)
+					//config RCR to receive different BSSID & not to receive data frame
+					value_rcr &= ~(rcr_clear_bit);
+					rtw_write32(Adapter, REG_RCR, value_rcr);
+					rtw_write16(Adapter, REG_RXFLTMAP2, value_rxfltmap2);
+	
+					//disable update TSF
+					rtw_write8(Adapter, REG_BCN_CTRL, rtw_read8(Adapter, REG_BCN_CTRL)|BIT(4));
+				}
+				else//sitesurvey done
+				{
+					struct mlme_ext_priv	*pmlmeext = &Adapter->mlmeextpriv;
+					struct mlme_ext_info	*pmlmeinfo = &(pmlmeext->mlmext_info);
+	
+					if ((is_client_associated_to_ap(Adapter) == _TRUE) ||
+						((pmlmeinfo->state&0x03) == WIFI_FW_ADHOC_STATE) )
 					{
+						//enable to rx data frame
+						//rtw_write32(Adapter, REG_RCR, rtw_read32(padapter, REG_RCR)|RCR_ADF);
+						rtw_write16(Adapter, REG_RXFLTMAP2,0xFFFF);
+	
+						//enable update TSF
+						rtw_write8(Adapter, REG_BCN_CTRL, rtw_read8(Adapter, REG_BCN_CTRL)&(~BIT(4)));
+					}
+					else if((pmlmeinfo->state&0x03) == WIFI_FW_AP_STATE)
+					{
+						//rtw_write32(Adapter, REG_RCR, rtw_read32(Adapter, REG_RCR)|RCR_ADF);
+						rtw_write16(Adapter, REG_RXFLTMAP2,0xFFFF);
+	
+						//enable update TSF
+						rtw_write8(Adapter, REG_BCN_CTRL, rtw_read8(Adapter, REG_BCN_CTRL)&(~BIT(4)));
+					}
+	
+					value_rcr |= rcr_clear_bit;
+					if(((pmlmeinfo->state&0x03) != WIFI_FW_AP_STATE) && (Adapter->in_cta_test)) {
 						u32 v = rtw_read32(Adapter, REG_RCR);
 						v &= ~(RCR_CBSSID_DATA | RCR_CBSSID_BCN );//| RCR_ADF
 						rtw_write32(Adapter, REG_RCR, v);
-					}
-					else
-					{
-						rtw_write32(Adapter, REG_RCR, rtw_read32(Adapter, REG_RCR)|RCR_CBSSID_BCN);
+					} else {
+						rtw_write32(Adapter, REG_RCR, value_rcr);	
 					}
 				}
 			}
@@ -3678,13 +3701,6 @@ _func_enter_;
 					regTmp &= (~BIT1);
 				rtw_write8(Adapter,REG_WMAC_TRXPTCL_CTL+2,regTmp);				
 			}
-			break;
-		case HW_VAR_SEC_CFG:
-#ifdef CONFIG_CONCURRENT_MODE
-			rtw_write8(Adapter, REG_SECCFG, 0x0c|BIT(5));// enable tx enc and rx dec engine, and no key search for MC/BC				
-#else
-			rtw_write8(Adapter, REG_SECCFG, *((u8 *)val));
-#endif
 			break;
 		case HW_VAR_CAM_EMPTY_ENTRY:
 			{
@@ -4042,9 +4058,12 @@ _func_enter_;
 				case WOWLAN_ENABLE:
 					DBG_871X_LEVEL(_drv_always_, "WOWLAN_ENABLE\n");
 
+					#ifndef DYNAMIC_CAMID_ALLOC
 					val8 = (psecuritypriv->dot11AuthAlgrthm == dot11AuthAlgrthm_8021X)? 0xcc: 0xcf;
 					rtw_write8(Adapter, REG_SECCFG, val8);
 					DBG_871X_LEVEL(_drv_always_, "REG_SECCFG: %02x\n", rtw_read8(Adapter, REG_SECCFG));
+					#endif
+
 					SetFwRelatedForWoWLAN8188ES(Adapter, _TRUE);
 
 					rtl8188e_set_FwJoinBssReport_cmd(Adapter, 1);
@@ -4102,8 +4121,11 @@ _func_enter_;
 					DBG_871X_LEVEL(_drv_always_, "WOWLAN_DISABLE\n");
 
 					rtl8188e_set_FwJoinBssReport_cmd(Adapter, 0);
+
+					#ifndef DYNAMIC_CAMID_ALLOC
 					rtw_write8(Adapter, REG_SECCFG, 0x0c|BIT(5));// enable tx enc and rx dec engine, and no key search for MC/BC
 					DBG_871X_LEVEL(_drv_always_, "REG_SECCFG: %02x\n", rtw_read8(Adapter, REG_SECCFG));
+					#endif
 
 					pwrctl->wowlan_wake_reason =
 						rtw_read8(Adapter, REG_WOWLAN_WAKE_REASON);
@@ -4233,7 +4255,7 @@ _func_enter_;
 			*val = pHalData->bMacPwrCtrlOn;
 			break;
 		case HW_VAR_CHK_HI_QUEUE_EMPTY:
-			*val = ((rtw_read32(Adapter, REG_HGQ_INFORMATION)&0x0000ff00)==0) ? _TRUE:_FALSE;
+			*val = ((rtw_read32(Adapter, REG_HGQ_INFO)&0x0000ff00)==0) ? _TRUE:_FALSE;
 			break;
 		default:
 			GetHwReg8188E(Adapter, variable, val);
@@ -4378,7 +4400,7 @@ GetHalDefVar8188EUsb(
 #endif	//(RATE_ADAPTIVE_SUPPORT == 1)
 			break;
 		default:
-			bResult = GetHalDefVar(Adapter, eVariable, pValue);
+			bResult = GetHalDefVar8188E(Adapter, eVariable, pValue);
 			break;
 	}
 

@@ -3,7 +3,7 @@
  *
  * $Copyright Open Broadcom Corporation$
  *
- * $Id: wldev_common.c,v 1.1.4.1.2.14 2011-02-09 01:40:07 $
+ * $Id: wldev_common.c 504503 2014-09-24 11:28:56Z $
  */
 
 #include <osl.h>
@@ -15,12 +15,12 @@
 #include <bcmutils.h>
 #include <dhd_config.h>
 
-#define htod32(i) i
-#define htod16(i) i
-#define dtoh32(i) i
-#define dtoh16(i) i
-#define htodchanspec(i) i
-#define dtohchanspec(i) i
+#define htod32(i) (i)
+#define htod16(i) (i)
+#define dtoh32(i) (i)
+#define dtoh16(i) (i)
+#define htodchanspec(i) (i)
+#define dtohchanspec(i) (i)
 
 #define	WLDEV_ERROR(args)						\
 	do {										\
@@ -309,11 +309,6 @@ int wldev_set_band(
 	struct net_device *dev, uint band)
 {
 	int error = -1;
-	uint band_conf;
-
-	band_conf = dhd_conf_get_band(bcmsdh_get_drvdata());
-	if (band_conf != WLC_BAND_AUTO)
-		band = band_conf;
 
 	if ((band == WLC_BAND_AUTO) || (band == WLC_BAND_5G) || (band == WLC_BAND_2G)) {
 		error = wldev_ioctl(dev, WLC_SET_BAND, &band, sizeof(band), true);
@@ -342,7 +337,7 @@ int wldev_set_country(
 	}
 
 	if ((error < 0) ||
-	    (strncmp(country_code, cspec.ccode, WLC_CNTRY_BUF_SZ) != 0)) {
+	    (strncmp(country_code, cspec.country_abbrev, WLC_CNTRY_BUF_SZ) != 0)) {
 
 		if (user_enforced) {
 			bzero(&scbval, sizeof(scb_val_t));
@@ -357,7 +352,7 @@ int wldev_set_country(
 		cspec.rev = -1;
 		memcpy(cspec.country_abbrev, country_code, WLC_CNTRY_BUF_SZ);
 		memcpy(cspec.ccode, country_code, WLC_CNTRY_BUF_SZ);
-		get_customized_country_code((char *)&cspec.country_abbrev, &cspec);
+		dhd_get_customized_country_code(dev, (char *)&cspec.country_abbrev, &cspec);
 		error = wldev_iovar_setbuf(dev, "country", &cspec, sizeof(cspec),
 			smbuf, sizeof(smbuf), NULL);
 		if (error < 0) {
@@ -365,6 +360,8 @@ int wldev_set_country(
 				__FUNCTION__, country_code, cspec.ccode, cspec.rev));
 			return error;
 		}
+		dhd_conf_fix_country(dhd_get_pub(dev));
+		dhd_conf_get_country(dhd_get_pub(dev), &cspec);
 		dhd_bus_country_set(dev, &cspec, notify);
 		WLDEV_ERROR(("%s: set country for %s as %s rev %d\n",
 			__FUNCTION__, country_code, cspec.ccode, cspec.rev));
