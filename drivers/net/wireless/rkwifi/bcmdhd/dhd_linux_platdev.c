@@ -295,7 +295,7 @@ static int wifi_plat_dev_drv_remove(struct platform_device *pdev)
 	ASSERT(dhd_wifi_platdata != NULL);
 	ASSERT(dhd_wifi_platdata->num_adapters == 1);
 	adapter = &dhd_wifi_platdata->adapters[0];
-	if (is_power_on) {
+	/*if (is_power_on)*/ {
 #ifdef BCMPCIE
 		wifi_platform_bus_enumerate(adapter, FALSE);
 		wifi_platform_set_power(adapter, FALSE, WIFI_TURNOFF_DELAY);
