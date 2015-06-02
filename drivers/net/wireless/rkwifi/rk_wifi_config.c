@@ -33,12 +33,12 @@ int rkwifi_set_firmware(char *fw, char *nvram)
 {
 #ifdef CONFIG_RK903
 	sprintf(fw, "%s%s", ANDROID_FW_PATH, "fw_RK903.bin");
-#ifdef CONFIG_RKWIFI_26M
+//#ifdef CONFIG_RKWIFI_26M
 	sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_RK903_26M.cal");
-#endif
-#ifdef CONFIG_RKWIFI_37_4M	
-	sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_RK903.cal");
-#endif	
+//#endif
+//#ifdef CONFIG_RKWIFI_37_4M	
+//	sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_RK903.cal");
+//#endif	
 #endif	
 
 #ifdef CONFIG_RK901
@@ -62,12 +62,27 @@ int rkwifi_set_firmware(char *fw, char *nvram)
 
 #ifdef CONFIG_AP6210
     sprintf(fw, "%s%s", ANDROID_FW_PATH, "fw_RK901.bin");
-#ifdef CONFIG_RKWIFI_26M
+//#ifdef CONFIG_RKWIFI_26M
 	sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_AP6210.txt");
+//#endif
+//#ifdef CONFIG_RKWIFI_24M
+//	sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_AP6210_24M.txt");
+//#endif
 #endif
-#ifdef CONFIG_RKWIFI_24M
-	sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_AP6210_24M.txt");
+
+#ifdef CONFIG_AP6212
+    sprintf(fw, "%s%s", ANDROID_FW_PATH, "fw_bcm43438a0.bin ");
+    sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_ap6212.txt");
 #endif
+
+#ifdef CONFIG_AP6234
+    sprintf(fw, "%s%s", ANDROID_FW_PATH, "fw_bcm43341b0_ag.bin");
+        sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_AP6234.txt");
+#endif
+
+#ifdef CONFIG_AP6441
+    sprintf(fw, "%s%s", ANDROID_FW_PATH, "fw_bcm43341b0_ag.bin");
+        sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_AP6441.txt");
 #endif
 
 #ifdef CONFIG_AP6476
@@ -83,6 +98,16 @@ int rkwifi_set_firmware(char *fw, char *nvram)
 #ifdef CONFIG_AP6330
     sprintf(fw, "%s%s", ANDROID_FW_PATH, "fw_RK903_ag.bin");
 	sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_AP6330.txt");
+#endif
+
+#ifdef CONFIG_AP6335
+    sprintf(fw, "%s%s", ANDROID_FW_PATH, "fw_bcm4339a0_ag.bin");
+        sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_AP6335.txt");
+#endif
+
+#ifdef CONFIG_AP6354
+    sprintf(fw, "%s%s", ANDROID_FW_PATH, "fw_bcm4354a1_ag.bin");
+        sprintf(nvram, "%s%s", ANDROID_FW_PATH, "nvram_ap6354.txt");
 #endif
 
 #ifdef CONFIG_GB86302I

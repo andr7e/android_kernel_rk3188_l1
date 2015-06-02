@@ -131,10 +131,6 @@ choice
 	prompt "Select the wifi module"
 	default RK903
 	
-	config BCM4330 
-    	bool "BCM4330"
-    	depends on RKWIFI && WLAN_80211
-
 	config RK903
     	bool "RK903"
 	    depends on RKWIFI && WLAN_80211
@@ -151,6 +147,10 @@ choice
 		bool "AP6210"
 		depends on RKWIFI && WLAN_80211
 
+        config AP6212
+                bool "AP6212"
+                depends on RKWIFI && WLAN_80211
+
 	config AP6234
 		bool "AP6234"
 		depends on RKWIFI
@@ -162,6 +162,10 @@ choice
 	config AP6335
 		bool "AP6335"
 		depends on RKWIFI
+
+        config AP6354
+                bool "AP6354"
+                depends on RKWIFI
 
 	config AP6441
 		bool "AP6441"
@@ -175,30 +179,26 @@ choice
 		bool "AP6493"
 		depends on RKWIFI && WLAN_80211
 
-	config GB86302I
-		bool "GB86302I"
-		depends on RKWIFI && WLAN_80211
-
 endchoice
 
-choice
-	depends on RKWIFI && WLAN_80211
-	prompt "Select the wifi module crystal freq"
-	default RKWIFI_26M
-
-	config RKWIFI_37_4M
-    	bool "37_4M"
-	    depends on RKWIFI && WLAN_80211
-
-	config RKWIFI_26M
-    	bool "26M"
-	    depends on RKWIFI && WLAN_80211
-
-	config RKWIFI_24M
-    	bool "24M"
-	    depends on RKWIFI && WLAN_80211
-
-endchoice
+#choice
+#	depends on RKWIFI && WLAN_80211
+#	prompt "Select the wifi module crystal freq"
+#	default RKWIFI_26M
+#
+#	config RKWIFI_37_4M
+#    	bool "37_4M"
+#	    depends on RKWIFI && WLAN_80211
+#
+#	config RKWIFI_26M
+#    	bool "26M"
+#	    depends on RKWIFI && WLAN_80211
+#
+#	config RKWIFI_24M
+#    	bool "24M"
+#	    depends on RKWIFI && WLAN_80211
+#
+#endchoice
 
 endif
 
