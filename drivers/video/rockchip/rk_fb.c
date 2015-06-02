@@ -791,7 +791,7 @@ static int rk_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 					//queue_delayed_work(inf->workqueue, &inf->delay_work,0);
 					if (!(var->grayscale & RK_FB_CFG_DONE_FLAG)) {
 						if(dev_drv1->lcdc_reg_update)
-							dev_drv1->lcdc_reg_update(dev_drv);
+							dev_drv1->lcdc_reg_update(dev_drv1);
 					}
 				}
 			}
