@@ -59,7 +59,9 @@
 #if defined(CONFIG_MFD_RK616)
 #include <linux/mfd/rk616.h>
 #endif
-
+#if defined(CONFIG_TOUCHSCREEN_VTL)
+#include <linux/vtl_ts.h>
+#endif
 #if defined(CONFIG_RK_HDMI)
 	#include "../../../drivers/video/rockchip/hdmi/rk_hdmi.h"
 #endif
@@ -150,6 +152,31 @@ struct goodix_platform_data goodix_info = {
 	.irq_pin = RK30_PIN1_PB7,
 	.rest_pin = TOUCH_RESET_PIN,
 	.init_platform_hw = goodix_init_platform_hw,
+};
+#endif
+
+#if defined(CONFIG_TOUCHSCREEN_VTL)
+
+#define TOUCH_MODEL		363
+#define TOUCH_MAX_X		800
+#define TOUCH_MAX_y		1280
+#define TOUCH_RESET_PIN		RK30_PIN0_PB6
+#define TOUCH_INT_PIN		RK30_PIN1_PB7
+
+static struct ct36x_platform_data ct36x_info = {
+	.model   = TOUCH_MODEL,
+	.x_max   = TOUCH_MAX_X,
+	.y_max   = TOUCH_MAX_y,
+
+	.rst_io = {
+		.gpio = TOUCH_RESET_PIN,
+		.active_low = 1,
+	},
+	.irq_io = {
+		.gpio = TOUCH_INT_PIN,
+		.active_low = 1,
+	},
+	.orientation = {1, 0, 0, 1},
 };
 #endif
 
@@ -2174,6 +2201,15 @@ static struct i2c_board_info __initdata i2c2_info[] = {
 		.platform_data = &goodix_info,
 	},
 #endif
+#if defined (CONFIG_TOUCHSCREEN_VTL)
+	{
+		.type	       = CT36X_NAME,
+		.addr          = 0x01,
+		.flags         = 0,
+		.platform_data = &ct36x_info,
+	},
+#endif
+
 #if defined (CONFIG_LS_CM3217)
 	{
 		.type          = "lightsensor",
