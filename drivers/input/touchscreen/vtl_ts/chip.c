@@ -24,7 +24,7 @@ static struct ts_info * ts_object = NULL;
 static struct chip_cmd (*chip) = NULL;
 
 static unsigned char binary_data[] = {
-#include "../ct36x/ct362.dat"
+#include "ct362.dat"
 };
 
 
