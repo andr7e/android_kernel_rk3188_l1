@@ -13,6 +13,8 @@ if INPUT_TOUCHSCREEN
 
 config CT36X_TS
 	tristate "CT36X touchscreens support"
+config TOUCHSCREEN_VTL
+	tristate "VTL touchscreens support"
 
 config TOUCHSCREEN_GSLX680
 		tristate "gslX680 touchscreen panel support "
