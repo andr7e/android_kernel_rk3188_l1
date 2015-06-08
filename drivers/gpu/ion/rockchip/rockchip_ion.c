@@ -41,7 +41,8 @@ static long rockchip_custom_ioctl (struct ion_client *client, unsigned int cmd,
 					sizeof(struct ion_phys_data)))
 			return -EFAULT;
 
-		handle = ion_handle_get_by_id(client, data.handle);
+		handle = (struct ion_handle*)data.handle;
+		ion_handle_get(handle);
 		if (IS_ERR(handle))
 			return PTR_ERR(handle);
 
