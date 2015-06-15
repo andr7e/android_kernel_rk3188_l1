@@ -127,6 +127,8 @@ static const char bt_name[] =
     #else
         "ap6210_24M"
     #endif
+#elif defined(CONFIG_AP6210)
+        "ap6212"
 #elif defined(CONFIG_AP6330)
 		"ap6330"
 #elif defined(CONFIG_AP6476)
