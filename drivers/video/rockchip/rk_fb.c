@@ -962,6 +962,7 @@ static int rk_fb_set_config(struct rk_lcdc_device_driver *dev_drv, struct rk_fb_
 			return -ENOMEM;
 		}
 		fix->smem_start = phy_addr;
+		fix->mmio_start = fix->smem_start + var->xres_virtual * var->yres_virtual;
 		fix->smem_len = len;
 		info->fbops->fb_set_par(info);
 		info->fbops->fb_pan_display(var, info);
