@@ -857,6 +857,15 @@ static long vpu_service_ioctl(struct file *filp, unsigned int cmd, unsigned long
 		mutex_unlock(&service.lock);
 		break;
 	}
+	case VPU_IOC_PROBE_IOMMU_STATUS: {
+		int iommu_enable = 0;
+
+		if (copy_to_user((void __user *)arg, &iommu_enable, sizeof(int))) {
+			printk("error: VPU_IOC_PROBE_IOMMU_STATUS copy_to_user failed\n");
+			return -EFAULT;
+		}
+		break;
+	}
 	default : {
 		pr_err("error: unknow vpu service ioctl cmd %x\n", cmd);
 		break;
