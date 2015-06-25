@@ -2011,7 +2011,6 @@ int rk_fb_disp_scale_all(u8 left, u8 right, u8 top, u8 bottom, u8 lcdc_id)
 
 #if defined(CONFIG_ONE_LCDC_DUAL_OUTPUT_INF)||defined(CONFIG_NO_DUAL_DISP)
 	if(dev_drv->cur_screen->screen_id == 1){
-		 x_res * (100 - dev_drv->overscan.left) / 200;
 		dev_drv->cur_screen->xpos =
 			screen_x * (100 - dev_drv->overscan.left) / 200;
 		dev_drv->cur_screen->ypos =
