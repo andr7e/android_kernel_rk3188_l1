@@ -1549,7 +1549,11 @@ static struct rk616_platform_data rk616_pdata = {
 	.power_deinit = rk616_power_deinit,
 	.scl_rate   = RK616_SCL_RATE,
 	.lcd0_func = INPUT,             //port lcd0 as input
+#if defined(CONFIG_ONE_LCDC_DUAL_OUTPUT_INF) || defined(CONFIG_NO_DUAL_DISP)
+	.lcd1_func = UNUSED,             //port lcd1 unused
+#else
 	.lcd1_func = INPUT,             //port lcd1 as input
+#endif
 	.lvds_ch_nr = 1,		//the number of used lvds channel
 	.hdmi_irq = RK30_PIN2_PD6,
 	.spk_ctl_gpio = RK30_PIN2_PD7,
