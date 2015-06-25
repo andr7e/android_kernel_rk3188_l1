@@ -43,12 +43,13 @@
 #include <asm/cacheflush.h>
 #include <linux/slab.h>
 
+
 #ifdef CONFIG_ARCH_RK29
 #define IPP_VERSION "rk29-ipp 1.003"
-#endif
-
-#ifdef CONFIG_ARCH_RK30
+#elif defined CONFIG_ARCH_RK30
 #define IPP_VERSION "rk30-ipp 1.003"
+#else
+#define IPP_VERSION "rk31-ipp 1.003"
 #endif
 
 //#define IPP_TEST
