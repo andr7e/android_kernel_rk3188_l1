@@ -99,6 +99,32 @@
 
 #include "../mach-rk30/board-rk3168-tb-camera.c"
 
+
+
+
+#if defined(CONFIG_TOUCHSCREEN_GT9XX)
+#include "../../../drivers/input/touchscreen/gt9xx/gt9xx.h"
+#define TOUCH_MAX_X		800
+#define TOUCH_MAX_y		1280
+#define TOUCH_RESET_PIN		RK30_PIN0_PB6
+#define TOUCH_INT_PIN		RK30_PIN1_PB7
+
+static struct gt9xx_platform_data gt9xx_info = {
+	.model   = 8105,
+	.x_max   = TOUCH_MAX_X,
+	.y_max   = TOUCH_MAX_y,
+
+	.rst_io = {
+		.gpio = TOUCH_RESET_PIN,
+		.active_low = 0,
+	},
+	.irq_io = {
+		.gpio = TOUCH_INT_PIN,
+		.active_low = 1,
+	},
+};
+
+#endif
 #if defined(CONFIG_TOUCHSCREEN_GT8XX)
 #define TOUCH_RESET_PIN  RK30_PIN0_PB6
 #define TOUCH_PWR_PIN    RK30_PIN0_PC5   // need to fly line by hardware engineer
@@ -2205,6 +2231,16 @@ static struct i2c_board_info __initdata i2c2_info[] = {
 		.platform_data = &goodix_info,
 	},
 #endif
+#if defined (CONFIG_TOUCHSCREEN_GT9XX)
+	{
+		.type          = "GT9XX-TS",
+		.addr          = 0x14,
+		.flags         = 0,
+		.irq           = RK30_PIN1_PB7,
+		.platform_data = &gt9xx_info,
+	},
+#endif
+
 #if defined (CONFIG_TOUCHSCREEN_VTL)
 	{
 		.type	       = CT36X_NAME,
