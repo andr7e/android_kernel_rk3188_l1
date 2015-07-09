@@ -7,6 +7,7 @@
 wm97xx-ts-y := wm97xx-core.o
 obj-y                  			+= ct36x/
 obj-$(CONFIG_TOUCHSCREEN_VTL)          += vtl_ts/
+obj-$(CONFIG_TOUCHSCREEN_GT9XX)		+= gt9xx/
 obj-$(CONFIG_TOUCHSCREEN_88PM860X)	+= 88pm860x-ts.o
 obj-$(CONFIG_TOUCHSCREEN_AD7877)	+= ad7877.o
 obj-$(CONFIG_TOUCHSCREEN_AD7879)	+= ad7879.o

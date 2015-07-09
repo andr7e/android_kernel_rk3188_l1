@@ -16,6 +16,9 @@ config CT36X_TS
 config TOUCHSCREEN_VTL
 	tristate "VTL touchscreens support"
 
+config TOUCHSCREEN_GT9XX
+        tristate "gt9xx touchscreens support"
+
 config TOUCHSCREEN_GSLX680
 		tristate "gslX680 touchscreen panel support "
 		depends on I2C2_RK29 || I2C2_RK30
