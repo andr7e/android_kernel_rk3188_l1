@@ -364,7 +364,14 @@ void ion_handle_get(struct ion_handle *handle)
 
 int ion_handle_put(struct ion_handle *handle)
 {
-	return kref_put(&handle->ref, ion_handle_destroy);
+	struct ion_client *client = handle->client;
+	int ret;
+
+	mutex_lock(&client->lock);
+	ret = kref_put(&handle->ref, ion_handle_destroy);
+	mutex_unlock(&client->lock);
+
+	return ret;
 }
 
 static struct ion_handle *ion_handle_lookup(struct ion_client *client,
@@ -405,21 +412,24 @@ static bool ion_handle_validate(struct ion_client *client,
 static int ion_handle_add(struct ion_client *client, struct ion_handle *handle)
 {
 	int rc;
+	int id;
 	struct rb_node **p = &client->handles.rb_node;
 	struct rb_node *parent = NULL;
 	struct ion_handle *entry;
 
 	do {
-		int id;
 		rc = idr_pre_get(&client->idr, GFP_KERNEL);
 		if (!rc)
 			return -ENOMEM;
 		rc = idr_get_new_above(&client->idr, handle, 1, &id);
-		handle->id = id;
 	} while (rc == -EAGAIN);
 
-	if (rc < 0)
+	if (rc < 0) {
+		WARN(1, "%s: idr=%d\n", __func__, rc);
 		return rc;
+	}
+
+	handle->id = id;
 
 	while (*p) {
 		parent = *p;
@@ -513,6 +523,7 @@ void ion_free(struct ion_client *client, struct ion_handle *handle)
 
 	if (!valid_handle) {
 		WARN(1, "%s: invalid handle passed to free.\n", __func__);
+		pr_err("client=%p, handle.id=%d\n", client, handle->id);
 		mutex_unlock(&client->lock);
 		return;
 	}
@@ -1059,14 +1070,16 @@ struct dma_buf *ion_share_dma_buf(struct ion_client *client,
 
 	mutex_lock(&client->lock);
 	valid_handle = ion_handle_validate(client, handle);
-	mutex_unlock(&client->lock);
 	if (!valid_handle) {
 		WARN(1, "%s: invalid handle passed to share.\n", __func__);
+		mutex_unlock(&client->lock);
 		return ERR_PTR(-EINVAL);
 	}
 
 	buffer = handle->buffer;
 	ion_buffer_get(buffer);
+	mutex_unlock(&client->lock);
+
 	dmabuf = dma_buf_export(buffer, &dma_buf_ops, buffer->size, O_RDWR);
 	if (IS_ERR(dmabuf)) {
 		ion_buffer_put(buffer);
@@ -1099,6 +1112,7 @@ struct ion_handle *ion_import_dma_buf(struct ion_client *client, int fd)
 	struct dma_buf *dmabuf;
 	struct ion_buffer *buffer;
 	struct ion_handle *handle;
+	int ret;
 
 	dmabuf = dma_buf_get(fd);
 	if (IS_ERR_OR_NULL(dmabuf))
@@ -1118,14 +1132,22 @@ struct ion_handle *ion_import_dma_buf(struct ion_client *client, int fd)
 	handle = ion_handle_lookup(client, buffer);
 	if (!IS_ERR_OR_NULL(handle)) {
 		ion_handle_get(handle);
+		mutex_unlock(&client->lock);
 		goto end;
 	}
 	handle = ion_handle_create(client, buffer);
-	if (IS_ERR_OR_NULL(handle))
+	if (IS_ERR_OR_NULL(handle)) {
+		mutex_unlock(&client->lock);
 		goto end;
-	ion_handle_add(client, handle);
-end:
+	}
+	ret = ion_handle_add(client, handle);
 	mutex_unlock(&client->lock);
+	if (ret) {
+		ion_handle_put(handle);
+		handle = ERR_PTR(ret);
+	}
+
+end:
 	dma_buf_put(dmabuf);
 	return handle;
 }
