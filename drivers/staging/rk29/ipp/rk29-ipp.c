@@ -49,7 +49,7 @@
 #elif defined CONFIG_ARCH_RK30
 #define IPP_VERSION "rk30-ipp 1.003"
 #else
-#define IPP_VERSION "rk31-ipp 1.003"
+#define IPP_VERSION "rk31-ipp 1.004"
 #endif
 
 //#define IPP_TEST
@@ -1696,7 +1696,7 @@ static int __devinit ipp_drv_probe(struct platform_device *pdev)
 	}
 #endif
 
-#ifdef CONFIG_ARCH_RK30
+#if 1
 	data->pd_ipp = clk_get(&pdev->dev, "pd_ipp");
 	if (IS_ERR(data->pd_ipp))
 	{
