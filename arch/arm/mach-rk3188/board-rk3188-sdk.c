@@ -215,7 +215,7 @@ static struct spi_board_info board_spi_devices[] = {
 #ifdef CONFIG_BACKLIGHT_RK29_BL
 #define PWM_ID            3
 #define PWM_MODE          PWM3
-#define PWM_EFFECT_VALUE  1
+#define PWM_EFFECT_VALUE  0
 
 #define LCD_DISP_ON_PIN
 
