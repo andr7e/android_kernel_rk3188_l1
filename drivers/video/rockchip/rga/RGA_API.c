@@ -175,8 +175,12 @@ int32_t RGA_gen_two_pro(struct rga_req *msg, struct rga_req *msg1)
 
     msg->dst.x_offset = 0;
     msg->dst.y_offset = 0;
-            
-    msg->dst.yrgb_addr = (u32)rga_service.pre_scale_buf;
+    if(msg->mmu_info.mmu_flag &1) {
+	msg->dst.yrgb_addr = (u32)rga_service.pre_scale_buf;
+    }
+    else {
+	msg->dst.yrgb_addr = (u32)rga_service.pre_scale_buf_phy;
+    }    
     msg->dst.uv_addr = msg->dst.yrgb_addr + stride * dah;
     msg->dst.v_addr = msg->dst.uv_addr + ((stride * dah) >> 1);
 

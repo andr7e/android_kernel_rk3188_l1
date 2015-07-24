@@ -658,9 +658,7 @@ static void rga_try_set_reg(void)
             dmac_flush_range(&rga_service.cmd_buff[0], &rga_service.cmd_buff[28]);
             outer_flush_range(virt_to_phys(&rga_service.cmd_buff[0]),virt_to_phys(&rga_service.cmd_buff[28]));
 
-            #if defined(CONFIG_ARCH_RK30)
             rga_soft_reset();
-            #endif
 
             rga_write(0x0, RGA_SYS_CTRL);
             rga_write(0, RGA_MMU_CTRL);
@@ -1470,7 +1468,7 @@ static int __init rga_init(void)
     uint32_t *buf_p;
 
     /* malloc pre scale mid buf mmu table */
-    mmu_buf = kzalloc(1024*8, GFP_KERNEL);
+    mmu_buf = kzalloc(1024*8*256, GFP_KERNEL);
     if(mmu_buf == NULL)
     {
         printk(KERN_ERR "RGA get Pre Scale buff failed. \n");
@@ -1491,6 +1489,7 @@ static int __init rga_init(void)
     }
 
     rga_service.pre_scale_buf = (uint32_t *)mmu_buf;
+    rga_service.pre_scale_buf_phy = (uint32_t *)virt_to_phys(mmu_buf);
 
 	if ((ret = platform_driver_register(&rga_driver)) != 0)
 	{
