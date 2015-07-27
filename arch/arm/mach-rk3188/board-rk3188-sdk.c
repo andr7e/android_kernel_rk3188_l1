@@ -899,6 +899,8 @@ static struct platform_device irda_device = {
 #ifdef CONFIG_ION
 #define ION_RESERVE_SIZE        (80 * SZ_1M)
 #define ION_RESERVE_SIZE_120M   (120 * SZ_1M)
+#define ION_RESERVE_SIZE_220M   (220 * SZ_1M)
+
 static struct ion_platform_data rk30_ion_pdata = {
 	.nr = 1,
 	.heaps = {
@@ -2486,8 +2488,8 @@ static void __init rk30_reserve(void)
 #ifdef CONFIG_ION
 	size = ddr_get_cap() >> 20;
 	if(size >= 1024) { // DDR >= 1G, set ion to 120M
-		rk30_ion_pdata.heaps[0].size = ION_RESERVE_SIZE_120M;
-		ion_reserve_size = ION_RESERVE_SIZE_120M;
+		rk30_ion_pdata.heaps[0].size = ION_RESERVE_SIZE_220M;
+		ion_reserve_size = ION_RESERVE_SIZE_220M;
 	}
 	else {
 		rk30_ion_pdata.heaps[0].size = ION_RESERVE_SIZE;
