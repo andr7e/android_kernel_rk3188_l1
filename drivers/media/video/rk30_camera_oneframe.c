@@ -447,7 +447,6 @@ struct rk_cif_clk
     struct clk *cif_clk_out;
 	//************must modify end************/
 
-    spinlock_t lock;
     bool on;
 };
 
@@ -527,6 +526,8 @@ struct rk_camera_dev
     unsigned int reinit_times; 
     struct videobuf_queue *video_vq;
     atomic_t stop_cif;
+	wait_queue_head_t cif_stop_done;
+	volatile  bool cif_stopped;
     struct timeval first_tv;
     
     int chip_id;
@@ -1490,24 +1491,38 @@ end:
 static irqreturn_t rk_camera_irq(int irq, void *data)
 {
     struct rk_camera_dev *pcdev = data;
-    unsigned long reg_intstat;
+    unsigned int reg_intstat;
+
+	//should set value in cif irq    
+	static int rec_stop_cif = 0;
 
     spin_lock(&pcdev->lock);
 
-    if(atomic_read(&pcdev->stop_cif) == true) {
-        write_cif_reg(pcdev->base,CIF_CIF_INTSTAT,0xffffffff);
-        goto end;
-    }
 
     reg_intstat = read_cif_reg(pcdev->base,CIF_CIF_INTSTAT);
-
-    if (reg_intstat & 0x0200)
+	
+    if (reg_intstat & 0x0200){
         rk_camera_cifirq(irq,data);
+		if(atomic_read(&pcdev->stop_cif))
+			rec_stop_cif ++;
+		if(rec_stop_cif){
+		
+		}
+    }
 
-    if (reg_intstat & 0x01) 
-        rk_camera_dmairq(irq,data);
+    if (reg_intstat & 0x01){
+    	if(rec_stop_cif == 1){
+			pcdev->cif_stopped = true;
+			rec_stop_cif = 0;
+			write_cif_reg(pcdev->base,CIF_CIF_INTEN, 0x0);
+			//workaround: disabled capen can't stop cif really,so should reset instead.
+			rk_camera_cif_reset(pcdev,false);
+			wake_up(&pcdev->cif_stop_done);
+    	}else
+			rk_camera_dmairq(irq,data);
+    }
 
-end:    
+//end:    
     spin_unlock(&pcdev->lock);
     return IRQ_HANDLED;
 }
@@ -1609,7 +1624,6 @@ static int rk_camera_mclk_ctrl(int cif_idx, int on, int clk_rate)
         goto rk_camera_clk_ctrl_end;
     }
    
-    spin_lock(&clk->lock);
     if (on && !clk->on) {        
         clk_enable(clk->pd_cif);
         clk_enable(clk->aclk_cif);
@@ -1644,7 +1658,6 @@ static int rk_camera_mclk_ctrl(int cif_idx, int on, int clk_rate)
         if(err)
            RKCAMERA_TR("WARNING %s_%s_%d: camera sensor mclk maybe not close, please check!!!\n", __FILE__, __FUNCTION__, __LINE__); 
     }
-    spin_unlock(&clk->lock);
 rk_camera_clk_ctrl_end:
     return err;
 }
@@ -2942,6 +2955,7 @@ static int rk_camera_s_stream(struct soc_camera_device *icd, int enable)
 
         spin_lock_irqsave(&pcdev->lock,flags);
         atomic_set(&pcdev->stop_cif,false);
+		pcdev->cif_stopped = false;
         pcdev->irqinfo.cifirq_idx = 0;
         pcdev->irqinfo.cifirq_normal_idx = 0;
         pcdev->irqinfo.cifirq_abnormal_idx = 0;
@@ -2962,10 +2976,15 @@ static int rk_camera_s_stream(struct soc_camera_device *icd, int enable)
         
         cif_ctrl_val &= ~ENABLE_CAPTURE;
 		spin_lock_irqsave(&pcdev->lock, flags);
-    	write_cif_reg(pcdev->base,CIF_CIF_CTRL, cif_ctrl_val);
         atomic_set(&pcdev->stop_cif,true);
-		write_cif_reg(pcdev->base,CIF_CIF_INTEN, 0x0);
     	spin_unlock_irqrestore(&pcdev->lock, flags);
+		
+		init_waitqueue_head(&pcdev->cif_stop_done);
+		if (wait_event_timeout(pcdev->cif_stop_done, pcdev->cif_stopped, msecs_to_jiffies(1000)) == 0) {
+			RKCAMERA_TR("%s:%d, wait cif stop timeout!",__func__,__LINE__);
+			pcdev->cif_stopped = true;
+		}
+
 		flush_workqueue((pcdev->camera_wq));
 	}
     //must be reinit,or will be somthing wrong in irq process.
@@ -3399,7 +3418,6 @@ static int rk_camera_probe(struct platform_device *pdev)
         cif_clk[0].hclk_cif = clk_get(NULL, "hclk_cif0");
         cif_clk[0].cif_clk_in = clk_get(NULL, "cif0_in");
         cif_clk[0].cif_clk_out = clk_get(NULL, "cif0_out");
-        spin_lock_init(&cif_clk[0].lock);
         cif_clk[0].on = false;
         rk_camera_cif_iomux(0);
     } else {
@@ -3409,7 +3427,6 @@ static int rk_camera_probe(struct platform_device *pdev)
         cif_clk[1].hclk_cif = clk_get(NULL, "hclk_cif1");
         cif_clk[1].cif_clk_in = clk_get(NULL, "cif1_in");
         cif_clk[1].cif_clk_out = clk_get(NULL, "cif1_out");
-        spin_lock_init(&cif_clk[1].lock);
         cif_clk[1].on = false;
         rk_camera_cif_iomux(1);
     }
