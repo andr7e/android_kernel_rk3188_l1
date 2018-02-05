@@ -16,6 +16,16 @@ choice
 	prompt "RK3188 Board Type"
 	depends on SOC_RK3188
 
+config MACH_RK3188_RADXA_ROCK
+	bool "RK3188 Radxa Rock board"
+
+if MACH_RK3188_RADXA_ROCK
+
+config MACH_RK3188_RADXA_ROCK_PRO
+	bool "RK3188 Radxa Rock board pro version"
+
+endif
+
 config MACH_RK3188_TB
 	bool "RK3188 Top Board"
 
@@ -31,6 +41,12 @@ config MACH_RK3188_LR097
 
 config MACH_RK3188_DS1006H
 	bool "RK3188 ds1006h board"
+	
+config MACH_RK3188_PMP5785
+	bool "RK3188 PMP5785 board"
+
+config MACH_RK3188_PMP5101
+	bool "RK3188 PMP5101 board"
         
 config MACH_RK3188_FAC
         bool "RK3188 Board for factory"

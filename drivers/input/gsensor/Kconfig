@@ -39,4 +39,16 @@ config GS_BMA023
   help
     To have support for your specific gsesnor you will have to
     select the proper drivers which depend on this option.
+    
+config GS_BMA250
+  bool "gs_bma250"
+  help
+    To have support for your specific gsesnor you will have to
+    select the proper drivers which depend on this option.
+    
+config GS_BMA222
+  bool "gs_bma222"
+  help
+    To have support for your specific gsesnor you will have to
+    select the proper drivers which depend on this option.
 endif
