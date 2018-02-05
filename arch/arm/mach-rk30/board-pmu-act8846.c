@@ -462,7 +462,13 @@ void act8846_device_suspend(void)
 	udelay(100);
 
 	dcdc =regulator_get(NULL, "act_dcdc4");
-	regulator_set_voltage(dcdc, 2800000, 2800000);
+	
+#ifdef	CONFIG_MACH_RK3188_PMP5785
+	regulator_set_voltage(dcdc, 3300000, 3300000);
+#else
+	regulator_set_voltage(dcdc, 3000000, 3000000);
+#endif
+
 	regulator_put(dcdc);
 	udelay(100);
 
@@ -483,7 +489,13 @@ void act8846_device_resume(void)
 	udelay(100);
 
 	dcdc =regulator_get(NULL, "act_dcdc4");
+	
+#ifdef	CONFIG_MACH_RK3188_PMP5785
+	regulator_set_voltage(dcdc, 3300000, 3300000);
+#else
 	regulator_set_voltage(dcdc, 3000000, 3000000);
+#endif
+
 	regulator_put(dcdc);
 	udelay(100);
 	
