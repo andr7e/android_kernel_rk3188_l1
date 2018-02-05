@@ -109,7 +109,7 @@
             .mclk_rate = mclk,\
         }
 
-#define new_camera_device(sensor_name,\
+#define new_camera_device_l(sensor_name,\
                           face,\
                           pwdn_io,\
                           flash_attach,\
@@ -119,6 +119,30 @@
     new_camera_device_ex(sensor_name,\
                         face,\
                         CONS(sensor_name,_SENSOR_ORIENTATION),\
+                        INVALID_VALUE,\
+                        INVALID_VALUE,\
+                        INVALID_VALUE,\
+                        INVALID_VALUE,\
+                        pwdn_io,\
+                        CONS(sensor_name,_PWRDN_ACTIVE),\
+                        flash_attach,\
+                        CONS(sensor_name,_FULL_RESOLUTION),\
+                        mir,i2c_chl,\
+                        100000,\
+                        CONS(sensor_name,_I2C_ADDR),\
+                        cif_chl,\
+                        24)
+
+#define new_camera_device(sensor_name,\
+                          face,\
+                          pwdn_io,\
+                          flash_attach,\
+                          mir,\
+                          i2c_chl,\
+                          cif_chl)\
+    new_camera_device_ex(sensor_name,\
+                        face,\
+                        INVALID_VALUE,\
                         INVALID_VALUE,\
                         INVALID_VALUE,\
                         INVALID_VALUE,\
