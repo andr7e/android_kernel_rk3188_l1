@@ -139,7 +139,7 @@ int get_harware_version()
 }
 EXPORT_SYMBOL_GPL(get_harware_version);
 
-#if defined(CONFIG_TOUCHSCREEN_GT9XX)
+#if defined(CONFIG_TOUCHSCREEN_GT9XX_OLD)
 #define TOUCH_RESET_PIN    RK30_PIN0_PB6
 #define TOUCH_INT_PIN      RK30_PIN1_PB7
 #define TOUCH_PWR_PIN      INVALID_GPIO
@@ -149,6 +149,30 @@ struct goodix_platform_data goodix_info = {
 	.irq_pin  = TOUCH_INT_PIN,
 	.rest_pin = TOUCH_RESET_PIN,
 };
+#endif
+
+#if defined(CONFIG_TOUCHSCREEN_GT9XX)
+#include "../../../drivers/input/touchscreen/gt9xx/gt9xx.h"
+#define TOUCH_MAX_X		768
+#define TOUCH_MAX_Y		1024
+#define TOUCH_RESET_PIN		RK30_PIN0_PB6
+#define TOUCH_INT_PIN		RK30_PIN1_PB7
+
+static struct gt9xx_platform_data gt9xx_info = {
+	.model   = 8105,
+	.x_max   = TOUCH_MAX_X,
+	.y_max   = TOUCH_MAX_Y,
+
+	.rst_io = {
+		.gpio = TOUCH_RESET_PIN,
+		.active_low = 0,
+	},
+	.irq_io = {
+		.gpio = TOUCH_INT_PIN,
+		.active_low = 1,
+	},
+};
+
 #endif
 
 #if defined(CONFIG_CT36X_TS)
@@ -2009,13 +2033,22 @@ void  rk30_pwm_resume_voltage_set(void)
 
 #ifdef CONFIG_I2C2_RK30
 static struct i2c_board_info __initdata i2c2_info[] = {
-#if defined (CONFIG_TOUCHSCREEN_GT9XX)
+#if defined (CONFIG_TOUCHSCREEN_GT9XX_OLD)
 	{
 		.type          = "Goodix-TS",
 		.addr          = 0x5d,
 		.flags         = 0,
 		.irq           = TOUCH_INT_PIN,
 		.platform_data = &goodix_info,
+	},
+#endif
+#if defined (CONFIG_TOUCHSCREEN_GT9XX)
+	{
+		.type          = "GT9XX-TS",
+		.addr          = 0x5d,
+		.flags         = 0,
+		.irq           = TOUCH_INT_PIN,
+		.platform_data = &gt9xx_info,
 	},
 #endif
 #if defined (CONFIG_CT36X_TS)
